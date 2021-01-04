@@ -107,3 +107,93 @@ class CustomDataset:
             'x': torch.tensor(self.dataset[item, :], dtype=torch.float),
             'y': torch.tensor(self.target[item, :], dtype=torch.float)
         }
+
+    
+    
+    
+    
+def train_model(model, criterion, optimizer, loaders, device, num_epoch, patiance, \
+                 model_path, model_name, version, fold):
+    '''
+    arguments
+    ============
+    model :
+    criterion :
+    optimizer :
+    loaders :
+    device :
+    num_epoch :
+    patiance : :
+    model_path :
+    model_name :
+    version :
+    fold :
+    
+    returns
+    ============
+    model : trained model's parameters
+    learn_hist : learning curve data for each fold
+    save_path : the best epoch model parameters file path for each fold
+    '''
+    best_score = 100
+    counter = 0
+    epoch_list = []
+    score_list = []
+    score_list_tr = []
+    train_loader = loaders['train']
+    valid_loader = loaders['valid']
+    for epoch in tqdm(range(num_epoch)):
+        score = 0
+        tr_score = 0
+        for phase in ['train', 'valid']:
+            if phase == 'train':
+                
+                for data in train_loader:
+                    x = data['x'].to(device)
+                    y = data['y'].to(device)
+                    model.train()
+                    # ===================forward=====================
+                    output = model(x)
+                    loss = criterion(output, y)
+                    tr_score +=  loss.data.to('cpu').detach().numpy().copy()
+                    # ===================backward====================
+                    loss.backward()
+                    optimizer.step()
+                    optimizer.zero_grad()
+            else:
+                with torch.no_grad():
+                    for data in valid_loader:
+                        x = data['x'].to(device)
+                        y = data['y'].to(device)
+                        model.eval()
+                        output = model(x)
+                        loss = criterion(output, y)
+                        score +=  loss.data.to('cpu').detach().numpy().copy()
+
+                    if score <= best_score:
+                        counter  = 0
+                        best_score = score.copy()
+                        if not os.path.exists(f'{model_path}/{model_name}_{version}/'):
+                            os.mkdir(f'{model_path}/{model_name}_{version}')
+                        save_path = f'{model_path}/{model_name}_{version}/{model_name}_fold_{fold}_'+str(epoch+ 1)+'.pth'
+                        best_model = model.state_dict()
+
+                    else:
+                        counter += 1
+        if counter == patiance:
+            print('Loss did not improved for {} epochs'.format(patiance))
+            torch.save(best_model, save_path)
+            print('The best bse loss is {:.4f}'.format(best_score))
+            break
+        epoch_list.append(epoch+1)
+        score_list.append(score)
+        score_list_tr.append(tr_score)
+
+        print('Epoch [{}/{}],        Train BCE loss: {:.4f},         Valid BCE loss: {:.4f},       Early stopping counter: {}'\
+              .format(epoch + 1, num_epoch, tr_score,  score, counter))
+    learn_hist = pd.DataFrame()
+    learn_hist['epoch'] = epoch_list
+    learn_hist['valid_bce_loss'] = score_list
+    learn_hist['train_bce_loss'] = score_list_tr
+    
+    return model, learn_hist, save_path
