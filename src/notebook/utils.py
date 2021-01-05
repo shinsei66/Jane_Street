@@ -171,3 +171,9 @@ class PurgedGroupTimeSeriesSplit(_BaseKFold):
                     
             yield [int(i) for i in train_array], [int(i) for i in test_array]
 
+@njit(fastmath = True)
+def utility_score_numba(date, weight, resp, action):
+    Pi = np.bincount(date, weight * resp * action)
+    t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
+    u = min(max(t, 0), 6) * np.sum(Pi)
+    return u
