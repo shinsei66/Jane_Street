@@ -1,31 +1,22 @@
 import pandas as pd
 import numpy as np
+import yaml
 import glob
 #import cupy as cp
 import os
 import gc
 import time
-#import torch
-#import torchvision
-#from torch.optim.lr_scheduler import ReduceLROnPlateau
-#from torch import nn
-#import torch.nn.functional as F
-#from tqdm.notebook import tqdm
-#from torch.utils.data import DataLoader
-#print(torch.__version__)
-#import matplotlib.pyplot as plt
-#from numba import njit
-#%matplotlib inline
-#from janest_model import MLPNet , CustomDataset, train_model
-#from utils import PurgedGroupTimeSeriesSplit
-
-
-
-INPUTPATH = '../../input'
+from utils import get_args
 
 
 
 def main():
+    
+    args = get_args()
+    with open(args.config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    INPUTPATH = config['INPUTPATH']
     train = pd.read_parquet(f'{INPUTPATH}/train.parquet')
     test_df = pd.read_csv(f'{INPUTPATH}/example_test.csv')
     pred_df  = pd.read_csv(f'{INPUTPATH}/example_sample_submission.csv')
@@ -50,11 +41,17 @@ def main():
     X = train[features].values
     y = np.stack([(train[c] > 0.000001).astype('int') for c in resp_cols]).T
     f_mean = np.mean(train[features[1:]].values,axis=0)
+    date = train['date'].values
+    weight = train['weight'].values
+    resp = train['resp'].values
 
 
     np.save( f'{INPUTPATH}/f_mean.npy',f_mean)
     np.save( f'{INPUTPATH}/X.npy',X)
     np.save( f'{INPUTPATH}/y.npy',y)
+    np.save( f'{INPUTPATH}/date.npy',date)
+    np.save( f'{INPUTPATH}/weight.npy',weight )
+    np.save( f'{INPUTPATH}/resp.npy',resp)
 
 if __name__ == "__main__":
     sts = time.time()

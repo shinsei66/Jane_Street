@@ -1,0 +1,14 @@
+TRAINING : True
+USE_FINETUNE : True     
+FOLDS : 5
+GROUP_GAP : 20
+SEED : 66
+INPUTPATH : ../../input
+NUM_EPOCH : 500
+BATCH_SIZE : 16384
+PATIANCE : 15
+LR : 0.0005
+MDL_PATH  : ../models
+MDL_NAME : mlp
+VER : cv_base_swish
+THRESHOLD : 0.5

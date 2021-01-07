@@ -1,6 +1,6 @@
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 from pandas.api.types import is_categorical_dtype
-#関数の定義
+
 def reduce_mem_usage(df, use_float16=False):
     """ iterate through all the columns of a dataframe and modify the data type
         to reduce memory usage.        
@@ -171,3 +171,12 @@ class PurgedGroupTimeSeriesSplit(_BaseKFold):
                     
             yield [int(i) for i in train_array], [int(i) for i in test_array]
 
+            
+import argparse
+#https://rightcode.co.jp/blog/information-technology/pytorch-yaml-optimizer-parameter-management-simple-method-complete
+def get_args():
+    # 引数の導入
+    parser = argparse.ArgumentParser(description='Cross Validation Train')
+    parser.add_argument('config_path', type=str, help='Setting parameter(.yaml)')
+    args = parser.parse_args()
+    return args

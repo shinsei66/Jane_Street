@@ -1,10 +1,12 @@
-import pandas as pd
-import numpy as np
 import glob
 #import cupy as cp
 import os
 import gc
 import time
+import yaml
+import argparse
+import pandas as pd
+import numpy as np
 import torch
 import torchvision
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -17,28 +19,40 @@ print(torch.__version__)
 from numba import njit
 #%matplotlib inline
 from janest_model import MLPNet , CustomDataset, train_model
-from utils import PurgedGroupTimeSeriesSplit, utility_score_numba
+from utils import PurgedGroupTimeSeriesSplit, get_args
 
 
-TRAINING = True
-USE_FINETUNE = True     
-FOLDS = 5
-GROUP_GAP = 20
-SEED = 66
-INPUTPATH = '../../input'
-NUM_EPOCH = 500
-BATCH_SIZE = 16384
-PATIANCE = 15
-LR = 0.0005
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(DEVICE)
-MDL_PATH  = '../models'
-MDL_NAME = 'mlp'
-NUM_LYR = 5
-VER = 'cv_base_swish'
+
+
+
+
 
 
 def main():
+    
+    args = get_args()
+    with open(args.config_path, 'r') as f:
+        config = yaml.safe_load(f)
+
+        
+    TRAINING = config['TRAINING']
+    USE_FINETUNE = config['USE_FINETUNE']     
+    FOLDS = config['FOLDS']
+    GROUP_GAP = config['GROUP_GAP']
+    SEED = config['SEED']
+    INPUTPATH = config['INPUTPATH']
+    NUM_EPOCH = config['NUM_EPOCH']
+    BATCH_SIZE = config['BATCH_SIZE']
+    PATIANCE = config['PATIANCE']
+    LR =config['LR']
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(DEVICE)
+    MDL_PATH  =config['MDL_PATH']
+    MDL_NAME =config['MDL_NAME']
+    VER = config['VER']
+    THRESHOLD : config['THRESHOLD']
+    
+    
     f_mean = np.load( f'{INPUTPATH}/f_mean.npy')
     X = np.load( f'{INPUTPATH}/X.npy')
     y = np.load( f'{INPUTPATH}/y.npy')
@@ -94,7 +108,44 @@ def main():
     all_hist.to_csv(f'{MDL_PATH}/{MDL_NAME}_{VER}/{MDL_NAME}_learning_history.csv', index=False)
     ed = time.time()
     print('Training process takes {:.2f} min.'.format((ed-sts)/60))
+    
+    
+    
+    @njit(fastmath = True)
+    def utility_score_numba(date, weight, resp, action):
+        Pi = np.bincount(date, weight * resp * action)
+        t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
+        u = min(max(t, 0), 6) * np.sum(Pi)
+        return u
+    
+    
+    model_list  = glob.glob(f'{MDL_PATH}/{MDL_NAME}_{VER}/*.pth')
+    loop = int(np.round(len(X)/BATCH_SIZE))
+    pred_all = np.array([])
+    for n in tqdm(range(loop)):
+        x_tt = X[BATCH_SIZE*n:BATCH_SIZE*(n+1),:]
+        if np.isnan(x_tt[:, 1:].sum()):
+            x_tt[:, 1:] = np.nan_to_num(x_tt[:, 1:]) + np.isnan(x_tt[:, 1:]) * f_mean
+        pred = 0.0
+        X_test = torch.FloatTensor(x_tt).to(DEVICE)
+        for mdl in model_list:
+            load_weights = torch.load(mdl)
+            model.load_state_dict(load_weights)
+            model.eval()
+            pred += model(X_test).cpu().detach().numpy() / FOLDS
+        if len(pred_all) == 0:
+            pred_all = pred.copy()
+        else:
+            pred_all = np.vstack([pred_all, pred]).copy()
 
-
+    date = np.load( f'{INPUTPATH}/date.npy')
+    weight = np.load( f'{INPUTPATH}/weight.npy' )
+    resp = np.load( f'{INPUTPATH}/resp.npy')
+    action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
+    print(utility_score_numba(date, weight, resp, action))
+            
 if __name__ == "__main__":
-    main()
+    args = get_args()
+    with open(args.config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    print(config['USE_FINETUNE'])
