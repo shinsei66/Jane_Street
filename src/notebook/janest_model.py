@@ -197,13 +197,13 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
         score_list.append(score)
         score_list_tr.append(tr_score)
 
-        print('Epoch [{}/{}],        Train BCE loss: {:.6f},         Valid BCE loss: {:.6f},       Early stopping counter: {}'\
+        print('Epoch [{}/{}],        Trai  loss: {:.6f},         Valid loss: {:.6f},       Early stopping counter: {}'\
               .format(epoch + 1, num_epoch, tr_score,  score, counter))
     torch.save(best_model, save_path)
     print('The best bse loss is {:.6f}'.format(best_score))
     learn_hist = pd.DataFrame()
     learn_hist['epoch'] = epoch_list
-    learn_hist['valid_bce_loss'] = score_list
-    learn_hist['train_bce_loss'] = score_list_tr
+    learn_hist['valid_loss'] = score_list
+    learn_hist['train_loss'] = score_list_tr
     
     return model, learn_hist, save_path
