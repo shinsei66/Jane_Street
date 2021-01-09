@@ -8,13 +8,13 @@ import torch
 import torchvision
 from torch import nn
 import torch.nn.functional as F
-from tqdm.notebook import tqdm
+from tqdm import tqdm
+#from tqdm.notebook import tqdm
 from torch.utils.data import DataLoader
 #print(torch.__version__)
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from numba import njit
-#%matplotlib inline
-
+import logging
 
 
 
@@ -38,12 +38,12 @@ class autoencoder(nn.Module):
             nn.ReLU(True)
         )
         self.decoder = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(0.3),
             nn.Linear(640, input_size)
         )
         self.hidden = nn.Linear(input_size, 320)
         self.bat = nn.BatchNorm1d(320)
-        self.drop = nn.Dropout(0.2)
+        self.drop = nn.Dropout(0.3)
         self.hidden2 = nn.Linear(320, output_size)
         self.act = nn.Sigmoid()
 
@@ -57,10 +57,7 @@ class autoencoder(nn.Module):
         x = self.act(x)
         return x
     
-    
 
-    
-    
 class MLPNet (nn.Module):
     '''
     >> model = 
@@ -116,11 +113,9 @@ class CustomDataset:
         }
 
     
-    
-    
-    
+
 def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epoch, patiance, \
-                 model_path, model_name, version, fold):
+                 model_path, model_name, version, fold, logger):
     '''
     arguments
     ============
@@ -135,6 +130,7 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
     model_name :
     version :
     fold :
+    logger :
     
     returns
     ============
@@ -154,11 +150,12 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
         tr_score = 0
         for phase in ['train', 'valid']:
             if phase == 'train':
-                
+                model.train()
                 for data in train_loader:
+                    optimizer.zero_grad()
                     x = data['x'].to(device)
                     y = data['y'].to(device)
-                    model.train()
+                    
                     # ===================forward=====================
                     output = model(x)
                     loss = criterion(output, y)
@@ -166,13 +163,14 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
                     # ===================backward====================
                     loss.backward()
                     optimizer.step()
-                    optimizer.zero_grad()
+                    
             else:
+                model.eval()
                 with torch.no_grad():
                     for data in valid_loader:
                         x = data['x'].to(device)
                         y = data['y'].to(device)
-                        model.eval()
+                        
                         output = model(x)
                         loss = criterion(output, y)
                         score +=  loss.data.to('cpu').detach().numpy().copy()/len(valid_loader)       
@@ -189,7 +187,7 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
                         counter += 1
                 scheduler.step(score)
         if counter == patiance:
-            print('Loss did not improved for {} epochs'.format(patiance))
+            logger.info('Loss did not improved for {} epochs'.format(patiance))
             #torch.save(best_model, save_path)
             #print('The best bse loss is {:.6f}'.format(best_score))
             break
@@ -197,10 +195,10 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
         score_list.append(score)
         score_list_tr.append(tr_score)
 
-        print('Epoch [{}/{}],        Trai  loss: {:.6f},         Valid loss: {:.6f},       Early stopping counter: {}'\
+        logger.info('Epoch [{}/{}],        Trai  loss: {:.6f},         Valid loss: {:.6f},       Early stopping counter: {}'\
               .format(epoch + 1, num_epoch, tr_score,  score, counter))
     torch.save(best_model, save_path)
-    print('The best bse loss is {:.6f}'.format(best_score))
+    logger.info('The best bse loss is {:.6f}'.format(best_score))
     learn_hist = pd.DataFrame()
     learn_hist['epoch'] = epoch_list
     learn_hist['valid_loss'] = score_list
