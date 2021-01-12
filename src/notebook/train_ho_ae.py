@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torchvision
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 from torch import nn
 import torch.nn.functional as F
 #from tqdm.notebook import tqdm
@@ -61,95 +61,65 @@ def main():
     X = np.load( f'{INPUTPATH}/X.npy')
     y = np.load( f'{INPUTPATH}/y.npy')
     date = np.load( f'{INPUTPATH}/date.npy')
-    weight = np.load( f'{INPUTPATH}/weight.npy' )
-    resp = np.load( f'{INPUTPATH}/resp.npy')
     
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
+        for fold, (tr, vl) in enumerate(gkf.split(y, y, date)):
+
+            pass
+
+        logger.info('Train Data Date: {}'.format(np.unique(date[tr])))
+        logger.info('Valid Data Date: {}'.format(np.unique(date[vl])))
+        
+        
+        
     if MDL_NAME == 'autoencoder':
         model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
     else:
         raise NameError('Model name is not aligned with the actual model.')
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(
         model.parameters(), lr=LR, weight_decay=1e-5)
     scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
+    #scheduler = CosineAnnealingLR(optimizer, T_max=40, eta_min=1e-6, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)
-    
-    @njit(fastmath = True)
-    def utility_score_numba(date, weight, resp, action):
-        Pi = np.bincount(date, weight * resp * action)
-        t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
-        u = min(max(t, 0), 6) * np.sum(Pi)
-        return u
     
     if TRAINING:
         sts = time.time()
         learn_hist_list = []
         save_path_list = []
-        for fold, (tr, vl) in enumerate(gkf.split(y, y, date)):
-            logger.info('Fold : {}'.format(fold+1))
 
-            X_tr, X_val = X[tr], X[vl]
-            y_tr, y_val = y[tr], y[vl]
-            trn_dat = CustomDataset(X_tr, y_tr)
-            val_dat = CustomDataset(X_val, y_val)
-            trn_loader = DataLoader(trn_dat , batch_size=BATCH_SIZE, shuffle=False)
-            val_loader = DataLoader(val_dat , batch_size=BATCH_SIZE, shuffle=False)
-            loaders = {'train':trn_loader, 'valid': val_loader}
-            trained_model, learn_hist, save_path =\
-                train_model(model, criterion, optimizer, scheduler, loaders, DEVICE, NUM_EPOCH, PATIANCE, \
-                        MDL_PATH, MDL_NAME, VER, fold+1,logger)
 
-            fig_path = f'{MDL_PATH}/{MDL_NAME}_{VER}/figures'
-            
- 
-            loop = int(np.round(len(X)/BATCH_SIZE))
-            pred_all = np.array([])
-            for n in tqdm(range(loop)):
-                x_tt = X_val[BATCH_SIZE*n:BATCH_SIZE*(n+1),:]
-                if np.isnan(x_tt[:, 1:].sum()):
-                    x_tt[:, 1:] = np.nan_to_num(x_tt[:, 1:]) + np.isnan(x_tt[:, 1:]) * f_mean
-                pred = 0.0
-                X_test = torch.FloatTensor(x_tt).to(DEVICE)
-                
-                load_weights = torch.load(save_path)
-                model.load_state_dict(load_weights)
-                model.eval()
-                pred += model(X_test).cpu().detach().numpy()
-                if len(pred_all) == 0:
-                    pred_all = pred.copy()
-                else:
-                    pred_all = np.vstack([pred_all, pred]).copy()
-           
-            action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
-            date_vl = date[vl].copy()
-            weight_vl = weight[vl].copy()
-            resp_vl = resp[vl].copy()
-            action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
-            cv_score = utility_score_numba(date_vl , weight_vl , resp_vl , action)
-            max_score = utility_score_numba(date_vl , weight_vl , resp_vl , action_ans_vl )
-            logger.info('Fold {}: CV score is {}, Max score is {}, return ration is {:.1f} '\
-                        .format(fold+1, cv_score, max_score, 100*(cv_score/max_score)))
-            
-            if not os.path.exists(fig_path):
-                os.mkdir(fig_path)
-            fig = plt.figure()
-            ax1 = fig.add_subplot(111)
-            plt.plot(learn_hist.epoch, learn_hist.valid_loss, color = 'blue')
-            ax2 = ax1.twinx()
-            plt.plot(learn_hist.epoch, learn_hist.train_loss, color = 'red')
-            ax1.set_ylabel('Valid Loss')
-            ax2.set_ylabel('Train Loss')
-            plt.xlabel('Epochs')
-            plt.title('Learning Curve')
+        X_tr, X_val = X[tr], X[vl]
+        y_tr, y_val = y[tr], y[vl]
+        trn_dat = CustomDataset(X_tr, y_tr)
+        val_dat = CustomDataset(X_val, y_val)
+        trn_loader = DataLoader(trn_dat , batch_size=BATCH_SIZE, shuffle=False)
+        val_loader = DataLoader(val_dat , batch_size=BATCH_SIZE, shuffle=False)
+        loaders = {'train':trn_loader, 'valid': val_loader}
+        trained_model, learn_hist, save_path =\
+            train_model(model, criterion, optimizer, scheduler, loaders, DEVICE, NUM_EPOCH, PATIANCE, \
+                    MDL_PATH, MDL_NAME, VER, 'ho',logger)
 
-            fig.savefig(fig_path+f'/learning_hist_fold{fold+1}.png')
-            learn_hist['Fold'] = fold+1
-            learn_hist_list.append(learn_hist)
-            save_path_list.append(save_path)
+        fig_path = f'{MDL_PATH}/{MDL_NAME}_{VER}/figures'
+        if not os.path.exists(fig_path):
+            os.mkdir(fig_path)
+        fig = plt.figure()
+        ax1 = fig.add_subplot(111)
+        plt.plot(learn_hist.epoch, learn_hist.valid_loss, color = 'blue')
+        ax2 = ax1.twinx()
+        plt.plot(learn_hist.epoch, learn_hist.train_loss, color = 'red')
+        ax1.set_ylabel('Valid Loss')
+        ax2.set_ylabel('Train Loss')
+        plt.xlabel('Epochs')
+        plt.title('Learning Curve')
+
+        fig.savefig(fig_path+f'/learning_hist_fold{fold+1}.png')
+        learn_hist['Fold'] = fold+1
+        learn_hist_list.append(learn_hist)
+        save_path_list.append(save_path)
         hist_path = f'{MDL_PATH}/{MDL_NAME}_{VER}/history'
         if not os.path.exists(hist_path):
                             os.mkdir(hist_path)
@@ -158,15 +128,26 @@ def main():
         all_hist.to_csv(f'{MDL_PATH}/{MDL_NAME}_{VER}/history/{MDL_NAME}_learning_history.csv', index=False)
         ed = time.time()
         logger.info('Training process takes {:.2f} min.'.format((ed-sts)/60))
-
-            
+    
+    
+    
+    @njit(fastmath = True)
+    def utility_score_numba(date, weight, resp, action):
+        Pi = np.bincount(date, weight * resp * action)
+        t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
+        u = min(max(t, 0), 6) * np.sum(Pi)
+        return u
+    
+    
+    model_list  = glob.glob(f'{MDL_PATH}/{MDL_NAME}_{VER}/*.pth')
+    loop = int(np.round(len(X)/BATCH_SIZE))
+    pred_all = np.array([])
+    
     if not TRAINING:   
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
         for fold, (tr, vl) in enumerate(gkf.split(y, y, date)):
             pass
-    model_list  = glob.glob(f'{MDL_PATH}/{MDL_NAME}_{VER}/*.pth')
-    loop = int(np.round(len(X[vl])/BATCH_SIZE))
-    pred_all = np.array([])
+    
     for n in tqdm(range(loop)):
         x_t = X[vl].copy()
         x_tt = x_t[BATCH_SIZE*n:BATCH_SIZE*(n+1),:]
@@ -184,8 +165,14 @@ def main():
         else:
             pred_all = np.vstack([pred_all, pred]).copy()
 
-    action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
+    #f = np.median
+    weight = np.load( f'{INPUTPATH}/weight.npy' )
+    resp = np.load( f'{INPUTPATH}/resp.npy')
+    action = np.where(pred_all[:,0]> THRESHOLD, 1, 0).astype(int).copy()
+
+    
     if np.sum(action)>0:
+        #opt_threshold, opt_utility = decision_threshold_optimisation(f(pred_all) , date, weight, resp, low = f(pred_all).min(), high = f(pred_all).max())
         date_vl = date[vl].copy()
         weight_vl = weight[vl].copy()
         resp_vl = resp[vl].copy()
@@ -197,7 +184,9 @@ def main():
         
     else:
         raise ZeroDivisionError
-             
+    
+
+            
 if __name__ == "__main__":
     main()
 #     args = get_args()
