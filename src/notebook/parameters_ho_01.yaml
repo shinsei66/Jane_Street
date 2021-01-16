@@ -1,4 +1,4 @@
-EXT : '014'
+EXT : '012'
 TRAINING : True
 USE_FINETUNE : True
 FOLDS : 5
@@ -14,4 +14,4 @@ MDL_NAME : autoencoder
 VER : ho_base
 THRESHOLD : 0
 DATAVER : '02'
-COMMENT: apply batch norm to the input after decoder; base EXT013
+COMMENT: 'early stopping patiance 20--> 40; base EXT012'
