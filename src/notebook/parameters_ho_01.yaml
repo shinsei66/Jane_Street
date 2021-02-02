@@ -1,17 +1,17 @@
-EXT : '012'
+EXT : '023'
 TRAINING : True
 USE_FINETUNE : True
 FOLDS : 5
 GROUP_GAP : 20
 SEED : 66
 INPUTPATH : ../../input
-NUM_EPOCH : 300
+NUM_EPOCH : 500
 BATCH_SIZE : 32768
 PATIANCE : 40
 LR : 0.0005
 MDL_PATH  :  ../models
-MDL_NAME : autoencoder
+MDL_NAME : resnet
 VER : ho_base
 THRESHOLD : 0
 DATAVER : '02'
-COMMENT: 'early stopping patiance 20--> 40; base EXT012'
+COMMENT: 'resnet cosine-->plateau'

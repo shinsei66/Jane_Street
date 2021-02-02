@@ -14,8 +14,7 @@ from torch.utils.data import DataLoader
 #print(torch.__version__)
 import matplotlib.pyplot as plt
 from torch.nn import CrossEntropyLoss, MSELoss
-from torch.nn.modules.loss import _WeightedLoss, _Loss
-from sklearn.metrics import roc_auc_score, roc_curve, log_loss
+from torch.nn.modules.loss import _WeightedLoss
 import logging
 
 
@@ -305,7 +304,7 @@ class CustomDataset:
         }
 
 class CustomDataset2:
-    def __init__(self, dataset, target, date, weight, resp):
+    def __init__(self, dataset, target, weight):
         self.dataset = dataset
         self.target = target
         self.weight = weight
@@ -317,62 +316,14 @@ class CustomDataset2:
         return {
             'x': torch.tensor(self.dataset[item, :], dtype=torch.float),
             'y': torch.tensor(self.target[item, :], dtype=torch.float),
+            'w': torch.tensor(self.weight[item], dtype=torch.float)
         }    
 
     
     
-# def unity_loss(output, dat, device,i):
-#     from numba import njit
-#     @njit(fastmath = True)
-#     def utility_score_numba(date, weight, resp, action):
-#         Pi = np.bincount(date, weight * resp * action)
-#         t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
-#         u = min(max(t, 0), 6) * np.sum(Pi)
-#         return u
-#     ac_b = np.where(np.mean(output.cpu().detach().numpy(), axis=1)> 0, 1, 0).astype(int).copy()
-#     bat_size = len(ac_b)
-#     date = dat['date'][i*bat_size:(i+1)*bat_size]
-#     weight = dat['weight'][i*bat_size:(i+1)*bat_size]
-#     resp = dat['resp'][i*bat_size:(i+1)*bat_size]
-#     us = utility_score_numba(date , weight, 
-#                                                resp, ac_b )
-    
-#     return -1*torch.tensor(us-0.01, dtype=torch.float).to(device)
-    
-class unity_loss(_Loss):
-    def __init__(self, output, dat, device, i):
-        super(unity_loss, self).__init__()
-        self.output = output
-        self.dat = dat
-        self.device=device
-        self.i = i
-        ac_b = np.where(np.mean(self.output.cpu().detach().numpy(), axis=1)> 0, 1, 0).astype(int).copy()
-        bat_size = len(ac_b)
-        date = self.dat['date'][self.i*bat_size:(self.i+1)*bat_size]
-        weight = self.dat['weight'][self.i*bat_size:(self.i+1)*bat_size]
-        resp = self.dat['resp'][self.i*bat_size:(self.i+1)*bat_size]
-#         print('{}  {}  {}  {}'.format(date.shape, weight.shape, resp.shape, ac_b[:len(date)].shape))
-        if (date.shape[0] == 0 ) or( ac_b.sum() ==0): 
-            self.us = 0
-        else:
-            self.us = utility_score_bincount(date, weight, resp, ac_b[:len(date)]) 
-            
-        
 
-    def forward(self, input, target):
-
-        loss = torch.tensor(-1*self.us, dtype=torch.float).to(self.device) * F.l1_loss(input, target)
-        return loss
-def utility_score_bincount(date, weight, resp, action):
-    count_i = len(np.unique(date))
-    # print('weight: ', weight)
-    # print('resp: ', resp)
-    # print('action: ', action)
-    # print('weight * resp * action: ', weight * resp * action)
-    Pi = np.bincount(date, weight * resp * action)
-    t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / count_i)
-    u = np.clip(t, 0, 6) * np.sum(Pi)
-    return u    
+    
+    
     
 def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epoch, patiance, \
                  model_path, model_name, version, fold, logger, dat):
@@ -399,13 +350,13 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
     learn_hist : learning curve data for each fold
     save_path : the best epoch model parameters file path for each fold
     '''
-#     from numba import njit
-#     @njit(fastmath = True)
-#     def utility_score_numba(date, weight, resp, action):
-#         Pi = np.bincount(date, weight * resp * action)
-#         t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
-#         u = min(max(t, 0), 6) * np.sum(Pi)
-#         return u
+    from numba import njit
+    @njit(fastmath = True)
+    def utility_score_numba(date, weight, resp, action):
+        Pi = np.bincount(date, weight * resp * action)
+        t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
+        u = min(max(t, 0), 6) * np.sum(Pi)
+        return u
     best_score = 100
     counter = 0
     epoch_list = []
@@ -419,77 +370,67 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
         for phase in ['train', 'valid']:
             if phase == 'train':
                 model.train()
-                for i, data in enumerate(train_loader):
+                for data in train_loader:
                     optimizer.zero_grad()
                     x = data['x'].to(device)
                     y = data['y'].to(device)
                
                     # ===================forward=====================
                     output = model(x)
-#                     cr = unity_loss(output, dat, device, i)
-#                     loss = cr(output, y)
                     loss = criterion(output, y)
                     tr_score +=  loss.data.to('cpu').detach().numpy().copy()/len(train_loader)
                     # ===================backward====================
                     loss.backward()
                     optimizer.step()
-
                     
             else:
                 model.eval()
                 with torch.no_grad():
-                    for i, data in enumerate(valid_loader):
-                        
+                    for data in valid_loader:
                         x = data['x'].to(device)
                         y = data['y'].to(device)
-
+                        
                         output = model(x)
                         loss = torch.mean(criterion(output, y))
-#                         cr = unity_loss(output, dat, device, i)
-#                         loss += cr(output, y)
-                        score +=  loss.data.to('cpu').detach().numpy().copy()/len(valid_loader)
-
-                    x_vl = torch.tensor(dat['x_vl'], dtype=torch.float).to(device)
-#                     pred = model(x_vl).cpu().detach().numpy()
-                    pred = model(x_vl).sigmoid().cpu().detach().numpy()
-                    action = np.where(np.mean(pred, axis=1)> 0.5, 1, 0).astype(int).copy()
-#                     uscore = utility_score_numba(dat['date'] , dat['weight'], dat['resp'] , action)
-                    uscore = utility_score_bincount(date=dat['date'] , weight= dat['weight'], resp=dat['resp'] , action = action)
-                    score = -1*uscore
-                    
-                    if np.round(score,decimals=5) < best_score:
+                        score +=  loss.data.to('cpu').detach().numpy().copy()/len(valid_loader) 
+                
+                    if np.round(score,decimals=13) < best_score:
                         counter  = 0
-                        best_score = score
+                        best_score = score.copy()
                         if not os.path.exists(f'{model_path}/{model_name}_{version}/'):
                             os.mkdir(f'{model_path}/{model_name}_{version}')
                         save_path = f'{model_path}/{model_name}_{version}/{model_name}_fold_{fold}_'+str(epoch+ 1)+'.pth'
-                        best_model = model.state_dict().copy()
+                        best_model = model.state_dict()
+
                     else:
                         counter += 1
-                        
                 plateau = True
                 if plateau:
                     scheduler.step(score)
                 else:
                     scheduler.step()
-
         if counter == patiance:
             logger.info('Loss did not improved for {} epochs'.format(patiance))
+            #torch.save(best_model, save_path)
+            #print('The best bse loss is {:.6f}'.format(best_score))
             break
         epoch_list.append(epoch+1)
         score_list.append(score)
         score_list_tr.append(tr_score)
-        
+        model.load_state_dict(best_model)
+        model.eval()
+        x_vl = torch.tensor(dat['x_vl'], dtype=torch.float).to(device)
+        pred = model(x_vl).cpu().detach().numpy()
+        action = np.where(np.mean(pred, axis=1)> 0, 1, 0).astype(int).copy()
+        uscore = utility_score_numba(dat['date'] , dat['weight'], dat['resp'] , action)
 
-        logger.info('Epoch [{}/{}],        Train  loss: {:.4f},         Valid loss: {:.4f},        utility score: {:.4f},       Early stopping counter: {}'\
+        logger.info('Epoch [{}/{}],        Train  loss: {:.6f},         Valid loss: {:.6f},        utility score: {:.6f},       Early stopping counter: {}'\
               .format(epoch + 1, num_epoch, tr_score,  score, uscore, counter))
     torch.save(best_model, save_path)
-    logger.info('The best loss is {:.6f}'.format(best_score))
+    logger.info('The best bse loss is {:.6f}'.format(best_score))
     learn_hist = pd.DataFrame()
     learn_hist['epoch'] = epoch_list
     learn_hist['valid_loss'] = score_list
     learn_hist['train_loss'] = score_list_tr
-    
-    model.load_state_dict(best_model)
     
     return model, learn_hist, save_path

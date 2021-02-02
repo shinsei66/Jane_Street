@@ -43,7 +43,6 @@ def main():
     NUM_EPOCH = config['NUM_EPOCH']
     BATCH_SIZE = config['BATCH_SIZE']
     PATIANCE = config['PATIANCE']
-    DATAVER = config['DATAVER']
     LR =config['LR']
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(DEVICE)
@@ -58,18 +57,14 @@ def main():
     logger.info(config)
     logger.info(sys.argv)
     
-#     f_mean = np.load( f'{INPUTPATH}/f_mean_{DATAVER}.npy')
-#     X = np.load( f'{INPUTPATH}/X_{DATAVER}.npy')
-#     y = np.load( f'{INPUTPATH}/y_{DATAVER}.npy')
-#     date = np.load( f'{INPUTPATH}/date_{DATAVER}.npy')
-#     weight = np.load( f'{INPUTPATH}/weight_{DATAVER}.npy' )
-#     resp = np.load( f'{INPUTPATH}/resp_{DATAVER}.npy')
     f_mean = np.load( f'{INPUTPATH}/f_mean.npy')
     X = np.load( f'{INPUTPATH}/X.npy')
-    y = np.load( f'{INPUTPATH}/y.npy')
+    y0 = np.load( f'{INPUTPATH}/y.npy')
     date = np.load( f'{INPUTPATH}/date.npy')
     weight = np.load( f'{INPUTPATH}/weight.npy' )
     resp = np.load( f'{INPUTPATH}/resp.npy')
+    y = np.stack([(y0[:, c] > 0).astype('int') for c in range(y0.shape[1])] ).T
+
     
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
@@ -86,11 +81,11 @@ def main():
         model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
     else:
         raise NameError('Model name is not aligned with the actual model.')
-    criterion = nn.L1Loss()
+    criterion = nn.BCELoss(weight= torch.tensor(weight).to(DEVICE),reduction='none')
     optimizer = torch.optim.Adam(
         model.parameters(), lr=LR, weight_decay=1e-5)
-    #scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
-    scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
+    #scheduler = CosineAnnealingLR(optimizer, T_max=40, eta_min=1e-6, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)
@@ -104,8 +99,10 @@ def main():
         X_tr, X_val = X[tr], X[vl]
         y_tr, y_val = y[tr], y[vl]
         w_tr, w_val = weight[tr], weight[vl]
-        trn_dat = CustomDataset(X_tr, y_tr)
-        val_dat = CustomDataset(X_val, y_val)
+        #trn_dat = CustomDataset(X_tr, y_tr)
+        #val_dat = CustomDataset(X_val, y_val)
+        trn_dat = CustomDataset2(X_tr, y_tr, w_tr)
+        val_dat = CustomDataset2(X_val, y_val, w_val)
         trn_loader = DataLoader(trn_dat , batch_size=BATCH_SIZE, shuffle=False)
         val_loader = DataLoader(val_dat , batch_size=BATCH_SIZE, shuffle=False)
         loaders = {'train':trn_loader, 'valid': val_loader}
@@ -188,7 +185,7 @@ def main():
         action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
         cv_score = utility_score_numba(date_vl , weight_vl , resp_vl , action)
         max_score = utility_score_numba(date_vl , weight_vl , resp_vl , action_ans_vl )
-        logger.info('CV score is {}, Max score is {}, return ratio is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
+        logger.info('CV score is {}, Max score is {}, return ration is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
 
         
     else:

@@ -1,0 +1,7 @@
+EXT : '001'
+SEED : 66
+INPUTPATH : ../../input
+MDL_PATH  :  ../models
+THRESHOLD : 0
+DATAVER : '03'
+COMMENT: keep weight = 0

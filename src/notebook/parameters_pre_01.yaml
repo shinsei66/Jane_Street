@@ -1,7 +1,7 @@
-EXT : '001'
+EXT : '000'
 SEED : 66
 INPUTPATH : ../../input
 MDL_PATH  :  ../models
 THRESHOLD : 0.5
-DATAVER : '02'
-COMMENT: change target 1,0 -->  resp
+DATAVER : '01'
+COMMENT: target 1,0 

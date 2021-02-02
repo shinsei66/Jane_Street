@@ -26,7 +26,7 @@ def main():
     logger.info(sys.argv)
     
     
-    train = pd.read_parquet(f'{INPUTPATH}/train.parquet')
+    train = pd.read_csv(f'{INPUTPATH}/train.csv')
     test_df = pd.read_csv(f'{INPUTPATH}/example_test.csv')
     pred_df  = pd.read_csv(f'{INPUTPATH}/example_sample_submission.csv')
     df_feat = pd.read_csv(f'{INPUTPATH}/features.csv')
@@ -34,13 +34,14 @@ def main():
 
 
     train = train.query('date > 85').reset_index(drop = True) 
-    print(train.shape)
+
     train.fillna(train.mean(),inplace=True)
-    train = train.query('weight > 0').reset_index(drop = True)
+    #train = train.query('weight > 0').reset_index(drop = True)
     
     for i in range(28):
         train[f'tag_{i}_features_mean']=train[df_feat[df_feat.loc[ :, 'tag_'+str(i)]==True].feature.to_list()].mean(axis=1)
     
+    logger.info(train.shape)
     features = [c for c in train.columns if 'feature' in c]
     logger.info('{} features are generated.'.format(len(features)))
 
@@ -49,19 +50,19 @@ def main():
     X = train[features].values
     y = np.stack([(train[c] > 0).astype('int') for c in resp_cols]).T
 #     y = np.stack([train[c]  for c in resp_cols]).T
-    train['action'] =  np.stack([(train[c] > 0).astype('int') for c in resp_cols]).T
+    #train['action'] =  np.stack([(train[c] > 0).astype('int') for c in resp_cols]).T
     f_mean = np.mean(train[features[1:]].values,axis=0)
     date = train['date'].values
     weight = train['weight'].values
     resp = train['resp'].values
 
 
-    np.save( f'{INPUTPATH}/f_mean.npy',f_mean)
-    np.save( f'{INPUTPATH}/X.npy',X)
-    np.save( f'{INPUTPATH}/y.npy',y)
-    np.save( f'{INPUTPATH}/date.npy',date)
-    np.save( f'{INPUTPATH}/weight.npy',weight )
-    np.save( f'{INPUTPATH}/resp.npy',resp)
+    np.save( f'{INPUTPATH}/f_mean_{DATAVER}.npy',f_mean)
+    np.save( f'{INPUTPATH}/X_{DATAVER}.npy',X)
+    np.save( f'{INPUTPATH}/y_{DATAVER}.npy',y)
+    np.save( f'{INPUTPATH}/date_{DATAVER}.npy',date)
+    np.save( f'{INPUTPATH}/weight_{DATAVER}.npy',weight )
+    np.save( f'{INPUTPATH}/resp_{DATAVER}.npy',resp)
     
     ed = time.time()
     logger.info('Data prepared in {:.2f} sec'.format(ed-sts))

@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torchvision
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 from torch import nn
 import torch.nn.functional as F
 #from tqdm.notebook import tqdm
@@ -70,10 +70,11 @@ def main():
         model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
     else:
         raise NameError('Model name is not aligned with the actual model.')
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(
         model.parameters(), lr=LR, weight_decay=1e-5)
-    scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
+    #scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
+    scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)
@@ -124,14 +125,15 @@ def main():
                 else:
                     pred_all = np.vstack([pred_all, pred]).copy()
            
-            action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
+            #action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
+            action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
             date_vl = date[vl].copy()
             weight_vl = weight[vl].copy()
             resp_vl = resp[vl].copy()
             action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
             cv_score = utility_score_numba(date_vl , weight_vl , resp_vl , action)
             max_score = utility_score_numba(date_vl , weight_vl , resp_vl , action_ans_vl )
-            logger.info('Fold {}: CV score is {}, Max score is {}, return ration is {:.1f} '\
+            logger.info('Fold {}: CV score is {}, Max score is {}, return ratio is {:.1f} '\
                         .format(fold+1, cv_score, max_score, 100*(cv_score/max_score)))
             
             if not os.path.exists(fig_path):
@@ -178,13 +180,14 @@ def main():
             load_weights = torch.load(mdl)
             model.load_state_dict(load_weights)
             model.eval()
-            pred += model(X_test).cpu().detach().numpy() 
+            pred += model(X_test).cpu().detach().numpy() /FOLDS
         if len(pred_all) == 0:
             pred_all = pred.copy()
         else:
             pred_all = np.vstack([pred_all, pred]).copy()
 
-    action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
+    #action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
+    action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
     if np.sum(action)>0:
         date_vl = date[vl].copy()
         weight_vl = weight[vl].copy()

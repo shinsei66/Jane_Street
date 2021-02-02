@@ -21,7 +21,7 @@ print(torch.__version__)
 import matplotlib.pyplot as plt
 from numba import njit
 #%matplotlib inline
-from janest_model import MLPNet , CustomDataset, train_model, autoencoder2, CustomDataset2
+from janest_model import MLPNet , CustomDataset, train_model, autoencoder2, ResNetModel
 from utils import PurgedGroupTimeSeriesSplit, get_args
 
 
@@ -82,15 +82,15 @@ def main():
         
         
         
-    if MDL_NAME == 'autoencoder':
-        model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
+    if MDL_NAME == 'resnet':
+        model = ResNetModel(input_size = X.shape[-1], output_size = y.shape[-1]).to(DEVICE)
     else:
         raise NameError('Model name is not aligned with the actual model.')
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(
         model.parameters(), lr=LR, weight_decay=1e-5)
-    #scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
-    scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
+#     scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)

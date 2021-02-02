@@ -1,17 +1,17 @@
-EXT : '008'
+EXT : '001'
 TRAINING : True
-USE_FINETUNE : False
+USE_FINETUNE : True
 FOLDS : 5
 GROUP_GAP : 20
 SEED : 66
 INPUTPATH : ../../input
-NUM_EPOCH : 1000
+NUM_EPOCH : 100
 BATCH_SIZE : 32768
-PATIANCE : 20
-LR : 0.0007
+PATIANCE : 10
+LR : 0.001
 MDL_PATH  :  ../models
 MDL_NAME : resnet
-VER : cv_base
+VER : nn_satarter
 THRESHOLD : 0.5
 DATAVER : '01'
-COMMENT: 'plateau factor 0.5, patiance 10'
+COMMENT: 
