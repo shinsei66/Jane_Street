@@ -3,5 +3,5 @@ SEED : 66
 INPUTPATH : ../../input
 MDL_PATH  :  ../models
 THRESHOLD : 0
-DATAVER : '02'
-COMMENT: resp as target
+DATAVER : '04'
+COMMENT: 1, 0 as target and threshold is 0.01

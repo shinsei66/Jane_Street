@@ -80,8 +80,8 @@ def main():
         model.parameters(), lr=LR,
         weight_decay=1e-5
     )
-    scheduler = ReduceLROnPlateau(optimizer, 'min',0.5,verbose=True,patience=10)
-#     scheduler = CosineAnnealingLR(optimizer, T_max=250, eta_min=1e-8, last_epoch=-1, verbose=True)
+#     scheduler = ReduceLROnPlateau(optimizer, 'min',0.5,verbose=True,patience=10)
+    scheduler = CosineAnnealingLR(optimizer, T_max=250, eta_min=1e-8, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)

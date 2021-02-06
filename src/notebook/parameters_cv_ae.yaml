@@ -1,4 +1,4 @@
-EXT : '008'
+EXT : '014'
 TRAINING : True
 USE_FINETUNE : False
 FOLDS : 5
@@ -7,11 +7,11 @@ SEED : 66
 INPUTPATH : ../../input
 NUM_EPOCH : 1000
 BATCH_SIZE : 32768
-PATIANCE : 20
+PATIANCE : 30
 LR : 0.0007
 MDL_PATH  :  ../models
-MDL_NAME : resnet
+MDL_NAME : autoencoder
 VER : cv_base
 THRESHOLD : 0.5
-DATAVER : '01'
-COMMENT: 'plateau factor 0.5, patiance 10'
+DATAVER : '04'
+COMMENT: 'target resp threshold 0--> 0.001'

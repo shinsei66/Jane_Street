@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 print(torch.__version__)
 import matplotlib.pyplot as plt
 from numba import njit
-from janest_model import CustomDataset, train_model, autoencoder2, ResNetModel, SmoothBCEwLogits, utility_score_bincount, train_model_unity
+from janest_model import CustomDataset, train_model, autoencoder2, ResNetModel, SmoothBCEwLogits, utility_score_bincount, MLPNet
 from utils import PurgedGroupTimeSeriesSplit, get_args
 
 
@@ -51,7 +51,6 @@ def main():
     MDL_NAME =config['MDL_NAME']
     VER = config['VER']
     THRESHOLD = config['THRESHOLD']
-    DATAVER = config['DATAVER']
     
     format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     logging.basicConfig(level = logging.INFO,format=format_str, filename=f'../logs/{MDL_NAME}_{VER}_{EXT}.log')
@@ -59,17 +58,17 @@ def main():
     logger.info(config)
     logger.info(sys.argv)
     
-    f_mean = np.load( f'{INPUTPATH}/f_mean_{DATAVER}.npy')
-    X = np.load( f'{INPUTPATH}/X_{DATAVER}.npy')
-    y = np.load( f'{INPUTPATH}/y_{DATAVER}.npy')
-    date = np.load( f'{INPUTPATH}/date_{DATAVER}.npy')
-    weight = np.load( f'{INPUTPATH}/weight_{DATAVER}.npy' )
-    resp = np.load( f'{INPUTPATH}/resp_{DATAVER}.npy')
+    f_mean = np.load( f'{INPUTPATH}/f_mean.npy')
+    X = np.load( f'{INPUTPATH}/X.npy')
+    y = np.load( f'{INPUTPATH}/y.npy')
+    date = np.load( f'{INPUTPATH}/date.npy')
+    weight = np.load( f'{INPUTPATH}/weight.npy' )
+    resp = np.load( f'{INPUTPATH}/resp.npy')
     
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
-    if MDL_NAME == 'autoencoder':
-        model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
+    if MDL_NAME == 'mlp':
+        model = MLPNet(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
     else:
         raise NameError('Model name is not aligned with the actual model.')
 #     criterion = nn.L1Loss()
@@ -80,8 +79,8 @@ def main():
         model.parameters(), lr=LR,
         weight_decay=1e-5
     )
-    scheduler = ReduceLROnPlateau(optimizer, 'min',0.5,verbose=True,patience=10)
-#     scheduler = CosineAnnealingLR(optimizer, T_max=250, eta_min=1e-8, last_epoch=-1, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min',0.5,verbose=True,patience=5)
+#     scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)
@@ -184,8 +183,7 @@ def main():
                         load_weights = torch.load(mdl)
                         model.load_state_dict(load_weights)
                         model.eval()
-#                         outputs += model(x).sigmoid().detach().cpu().numpy()/len(model_list)
-                        outputs += model(x).detach().cpu().numpy()/len(model_list)
+                        outputs += model(x).sigmoid().detach().cpu().numpy()/len(model_list)
                     preds.append(outputs)
 
             pred_all  = np.concatenate(preds)

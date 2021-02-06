@@ -51,6 +51,7 @@ def main():
     MDL_NAME =config['MDL_NAME']
     VER = config['VER']
     THRESHOLD = config['THRESHOLD']
+    DATAVER = config['DATAVER']
     
     format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     logging.basicConfig(level = logging.INFO,format=format_str, filename=f'../logs/{MDL_NAME}_{VER}_{EXT}.log')
@@ -58,12 +59,12 @@ def main():
     logger.info(config)
     logger.info(sys.argv)
     
-    f_mean = np.load( f'{INPUTPATH}/f_mean.npy')
-    X = np.load( f'{INPUTPATH}/X.npy')
-    y = np.load( f'{INPUTPATH}/y.npy')
-    date = np.load( f'{INPUTPATH}/date.npy')
-    weight = np.load( f'{INPUTPATH}/weight.npy' )
-    resp = np.load( f'{INPUTPATH}/resp.npy')
+    f_mean = np.load( f'{INPUTPATH}/f_mean_{DATAVER}.npy')
+    X = np.load( f'{INPUTPATH}/X_{DATAVER}.npy')
+    y = np.load( f'{INPUTPATH}/y_{DATAVER}.npy')
+    date = np.load( f'{INPUTPATH}/date_{DATAVER}.npy')
+    weight = np.load( f'{INPUTPATH}/weight_{DATAVER}.npy' )
+    resp = np.load( f'{INPUTPATH}/resp_{DATAVER}.npy')
     
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
@@ -85,12 +86,6 @@ def main():
     
     VER = (VER + '_' + EXT)
     
-#     @njit(fastmath = True)
-#     def utility_score_numba(date, weight, resp, action):
-#         Pi = np.bincount(date, weight * resp * action)
-#         t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
-#         u = min(max(t, 0), 6) * np.sum(Pi)
-#         return u
     
     if TRAINING:
         sts = time.time()
@@ -119,23 +114,7 @@ def main():
                         MDL_PATH, MDL_NAME, VER, fold+1,logger, data)
 
             fig_path = f'{MDL_PATH}/{MDL_NAME}_{VER}/figures'
-            
-#             loop = int(np.round(len(X)/BATCH_SIZE))
-#             pred_all = np.array([])
-#             for n in tqdm(range(loop)):
-#                 x_tt = X_val[BATCH_SIZE*n:BATCH_SIZE*(n+1),:]
-#                 if np.isnan(x_tt[:, 1:].sum()):
-#                     x_tt[:, 1:] = np.nan_to_num(x_tt[:, 1:]) + np.isnan(x_tt[:, 1:]) * f_mean
-#                 pred = 0.0
-#                 X_test = torch.FloatTensor(x_tt).to(DEVICE)
-#                 load_weights = torch.load(save_path)
-#                 model.load_state_dict(load_weights)
-#                 model.eval()
-#                 pred  = model(X_test).sigmoid().cpu().detach().numpy()
-#                 if len(pred_all) == 0:
-#                     pred_all = pred.copy()
-#                 else:
-#                     pred_all = np.vstack([pred_all, pred]).copy()
+           
 
             trained_model.eval()
             preds = []       
@@ -155,8 +134,6 @@ def main():
             resp_vl = resp[vl].copy()
             action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
             action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
-#             cv_score = utility_score_numba(date_vl , weight_vl , resp_vl , action)
-#             max_score = utility_score_numba(date_vl , weight_vl , resp_vl , action_ans_vl )
             cv_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action)
             max_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action_ans_vl )
             logger.info('Fold {}: CV score is {}, Max score is {}, return ratio is {:.1f} '\
@@ -214,23 +191,7 @@ def main():
 
             pred_all  = np.concatenate(preds)
             
-#             loop = int(np.round(len(X[vl])/BATCH_SIZE))
-#             pred_all = np.array([])
-#             for n in tqdm(range(loop+1)):
-#                 x_tt = X[vl][BATCH_SIZE*n:BATCH_SIZE*(n+1),:]
-#                 if np.isnan(x_tt[:, 1:].sum()):
-#                     x_tt[:, 1:] = np.nan_to_num(x_tt[:, 1:]) + np.isnan(x_tt[:, 1:]) * f_mean
-#                 pred = 0.0
-#                 X_test = torch.FloatTensor(x_tt).to(DEVICE)
-#                 for mdl in model_list:
-#                     load_weights = torch.load(mdl)
-#                     model.load_state_dict(load_weights)
-#                     model.eval()
-#                     pred = model(X_test).sigmoid().cpu().detach().numpy()
-#                 if len(pred_all) == 0:
-#                     pred_all = pred.copy()
-#                 else:
-#                     pred_all = np.vstack([pred_all, pred]).copy()
+
 
 #             action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
             action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
@@ -239,12 +200,10 @@ def main():
                 weight_vl = weight[vl].copy()
                 resp_vl = resp[vl].copy()
                 action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
-#                 cv_score = utility_score_numba(date_vl , weight_vl , resp_vl , action)
-#                 max_score = utility_score_numba(date_vl , weight_vl , resp_vl , action_ans_vl )
                 cv_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action)
                 max_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action_ans_vl )
 #                 print('CV score is {}, Max score is {}, return ration is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
-                logger.info('CV score is {}, Max score is {}, return ration is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
+                logger.info('CV score is {}, Max score is {}, return ratio is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
             else:
                 raise ZeroDivisionError
 

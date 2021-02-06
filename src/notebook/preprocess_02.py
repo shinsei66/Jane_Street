@@ -40,7 +40,10 @@ def main():
     
     for i in range(28):
         train[f'tag_{i}_features_mean']=train[df_feat[df_feat.loc[ :, 'tag_'+str(i)]==True].feature.to_list()].mean(axis=1)
-    
+    features = [c for c in train.columns if 'feature' in c]
+    x_tt = train.loc[:, features].values
+    train['features_41_42_43'] = x_tt[:, 41] + x_tt[:, 42] + x_tt[:, 43]
+    train['features_1_2'] = x_tt[:, 1] / (x_tt[:, 2] + 1e-5)
     logger.info(train.shape)
     features = [c for c in train.columns if 'feature' in c]
     logger.info('{} features are generated.'.format(len(features)))
@@ -48,7 +51,7 @@ def main():
     resp_cols = ['resp_1', 'resp_2', 'resp_3', 'resp', 'resp_4']
 
     X = train[features].values
-    y = np.stack([(train[c] > 0).astype('int') for c in resp_cols]).T
+    y = np.stack([(train[c] > 0.001).astype('int') for c in resp_cols]).T
 #     y = np.stack([train[c]  for c in resp_cols]).T
     #train['action'] =  np.stack([(train[c] > 0).astype('int') for c in resp_cols]).T
     f_mean = np.mean(train[features[1:]].values,axis=0)

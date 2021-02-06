@@ -4,4 +4,4 @@ INPUTPATH : ../../input
 MDL_PATH  :  ../models
 THRESHOLD : 0.5
 DATAVER : '01'
-COMMENT: target 1,0 
+COMMENT: target 1,0 , check the data again
