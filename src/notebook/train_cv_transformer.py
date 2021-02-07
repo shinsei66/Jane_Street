@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 print(torch.__version__)
 import matplotlib.pyplot as plt
 from numba import njit
-from janest_model import CustomDataset, train_model, autoencoder2, ResNetModel, SmoothBCEwLogits, utility_score_bincount, train_model_unity
+from janest_model import CustomDataset, train_model, autoencoder2, ResNetModel, SmoothBCEwLogits, utility_score_bincount, TransformerModel
 from utils import PurgedGroupTimeSeriesSplit, get_args
 
 
@@ -44,9 +44,11 @@ def main():
     NUM_EPOCH = config['NUM_EPOCH']
     BATCH_SIZE = config['BATCH_SIZE']
     PATIANCE = config['PATIANCE']
+    SERIES = config['SERIES']
     LR =config['LR']
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(DEVICE)
+    DEVICE = torch.cuda.set_device(0)
+#     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     print(DEVICE)
     MDL_PATH  =config['MDL_PATH']
     MDL_NAME =config['MDL_NAME']
     VER = config['VER']
@@ -65,11 +67,19 @@ def main():
     date = np.load( f'{INPUTPATH}/date_{DATAVER}.npy')
     weight = np.load( f'{INPUTPATH}/weight_{DATAVER}.npy' )
     resp = np.load( f'{INPUTPATH}/resp_{DATAVER}.npy')
+    if len(X)%SERIES != 0:
+        dat_len = int(np.floor(len(X)/SERIES))*SERIES
+        f_mean = f_mean[:dat_len]
+        X = X[:dat_len,:]
+        y = y[:dat_len,:]
+        date = date[:dat_len]
+        weight = weight[:dat_len]
+        resp = resp[:dat_len]
     
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
-    if MDL_NAME == 'autoencoder':
-        model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
+    if MDL_NAME == 'transformer':
+        model = TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE, length = SERIES).to(DEVICE)
     else:
         raise NameError('Model name is not aligned with the actual model.')
 #     criterion = nn.L1Loss()
@@ -80,8 +90,8 @@ def main():
         model.parameters(), lr=LR,
         weight_decay=1e-5
     )
-#     scheduler = ReduceLROnPlateau(optimizer, 'min',0.5,verbose=True,patience=10)
-    scheduler = CosineAnnealingLR(optimizer, T_max=250, eta_min=1e-8, last_epoch=-1, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min',0.5,verbose=True,patience=10)
+#     scheduler = CosineAnnealingLR(optimizer, T_max=250, eta_min=1e-8, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)
@@ -106,8 +116,8 @@ def main():
             
             trn_dat = CustomDataset(X_tr, y_tr)
             val_dat = CustomDataset(X_val, y_val)
-            trn_loader = DataLoader(trn_dat , batch_size=BATCH_SIZE, shuffle=False)
-            val_loader = DataLoader(val_dat , batch_size=BATCH_SIZE, shuffle=False)
+            trn_loader = DataLoader(trn_dat , batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+            val_loader = DataLoader(val_dat , batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
             loaders = {'train':trn_loader, 'valid': val_loader}
             trained_model, learn_hist, save_path =\
                 train_model(model, criterion, optimizer, scheduler, loaders, DEVICE, NUM_EPOCH, PATIANCE, \
@@ -132,7 +142,7 @@ def main():
             resp_vl = resp[vl].copy()
             action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
             action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
-            cv_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action)
+            cv_score = utility_score_bincount(date_vl[:action.shape[0]]  , weight_vl[:action.shape[0]], resp_vl[:action.shape[0]]  , action)
             max_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action_ans_vl )
             logger.info('Fold {}: CV score is {}, Max score is {}, return ratio is {:.1f} '\
                         .format(fold+1, cv_score, max_score, 100*(cv_score/max_score)))
@@ -198,7 +208,7 @@ def main():
                 weight_vl = weight[vl].copy()
                 resp_vl = resp[vl].copy()
                 action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
-                cv_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action)
+                cv_score = utility_score_bincount(date_vl[:action.shape[0]] , weight_vl[:action.shape[0]] , resp_vl[:action.shape[0]] , action)
                 max_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action_ans_vl )
 #                 print('CV score is {}, Max score is {}, return ration is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
                 logger.info('CV score is {}, Max score is {}, return ratio is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))

@@ -155,6 +155,13 @@ class SmoothBCEwLogits(_WeightedLoss):
         return targets
 
     def forward(self, inputs, targets):
+        if len(inputs)>len(targets):
+            inputs = inputs[:len(targets),:]
+        elif len(inputs)<len(targets):
+            targets = targets[:len(inputs),:]
+        else:
+            pass
+            
         targets = SmoothBCEwLogits._smooth(targets, inputs.size(-1),
             self.smoothing)
         loss = F.binary_cross_entropy_with_logits(inputs, targets,self.weight)
@@ -426,7 +433,52 @@ class GRUModel(nn.Module):
         
         return output 
 
+class TransformerModel(nn.Module):
+    '''
+    >> model = 
+        TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE, length = SERIES).to(DEVICE)
+    '''
+    def __init__(self,  **kwargs):
+        super(TransformerModel, self).__init__()
+        self.input_size = kwargs['input_size']
+        self.output_size = kwargs['output_size']
+        self.batch_size = kwargs['batch_size']
+        self.length = kwargs['length']
+        self.head = 8
+        self.num_hidden = 512
+        self.dr = 0.2
+        self.layer0 = nn.Sequential(
+            nn.BatchNorm1d(self.input_size),
+            nn.Linear(self.input_size, self.num_hidden),
+            Swish_module()
+        )
+        self.layer1 =   nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model =self.num_hidden, nhead=self.head,dropout= self.dr),num_layers=1)
+        self.layer2 =  nn.Linear( self.num_hidden, self.output_size)
 
+                      
+    
+    def forward(self, x):
+        #input (batch size, input size)
+        x_batch = x.shape[0]
+        x = self.layer0(x)
+        #input (batch size, hidden size)
+        if x_batch%self.length ==0:
+            x = x.contiguous().view(self.length, int(x_batch/self.length), self.num_hidden)
+        else:
+            x = x[:int(self.length*np.floor(x_batch/self.length)),:].clone()
+            x = x.contiguous().view(self.length, int(np.floor(x_batch/self.length)), self.num_hidden)
+        #x (length, 1, hidden size)
+        x = self.layer1(x)
+        #x (length, 1, hidden size))
+        x = x.contiguous().view(-1 , self.num_hidden)
+        #x (batch size, hidden size))
+        output = self.layer2(x)
+        #x (batch size,output size))
+        return output
+        
+        
+        
     
 def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epoch, patiance, \
                  model_path, model_name, version, fold, logger, dat):
@@ -474,10 +526,7 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
                
                     # ===================forward=====================
                     output = model(x)
-#                     cr = unity_loss(output, dat, device, i)
-#                     loss = cr(output, y)
                     loss = criterion(output, y)
-
                     tr_score +=  loss.data.to('cpu').detach().numpy().copy()/len(train_loader)
                     # ===================backward====================
                     loss.backward()
@@ -488,21 +537,17 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
                 model.eval()
                 with torch.no_grad():
                     for i, data in enumerate(valid_loader):
-                        
                         x = data['x'].to(device)
                         y = data['y'].to(device)
-
-                        output = model(x)
+                        output = model(x)                    
                         loss = torch.mean(criterion(output, y))
-#                         cr = unity_loss(output, dat, device, i)
-#                         loss += cr(output, y)
                         score +=  loss.data.to('cpu').detach().numpy().copy()/len(valid_loader)
 
                     x_vl = torch.tensor(dat['x_vl'], dtype=torch.float).to(device)
 #                     pred = model(x_vl).cpu().detach().numpy()
                     pred = model(x_vl).sigmoid().cpu().detach().numpy()
                     action = np.where(np.mean(pred, axis=1)> 0.5, 1, 0).astype(int).copy()
-                    uscore = utility_score_bincount(date=dat['date'] , weight= dat['weight'], resp=dat['resp'] , action = action)
+                    uscore = utility_score_bincount(date=dat['date'][:action.shape[0]] , weight= dat['weight'][:action.shape[0]], resp=dat['resp'] [:action.shape[0]], action = action)
                     score = -1*uscore
                     
                     if np.round(score,decimals=5) < best_score:
@@ -539,9 +584,7 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
     learn_hist['valid_loss'] = score_list
     learn_hist['train_loss'] = score_list_tr
     
-    model.load_state_dict(best_model)
-    
-    return model, learn_hist, save_path
+    return model.load_state_dict(best_model), learn_hist, save_path
 
 
 ##WIP
