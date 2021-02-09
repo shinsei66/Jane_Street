@@ -436,17 +436,20 @@ class GRUModel(nn.Module):
 class TransformerModel(nn.Module):
     '''
     >> model = 
-        TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE, length = SERIES).to(DEVICE)
+        TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE).to(DEVICE)
     '''
     def __init__(self,  **kwargs):
         super(TransformerModel, self).__init__()
         self.input_size = kwargs['input_size']
         self.output_size = kwargs['output_size']
         self.batch_size = kwargs['batch_size']
-        self.length = kwargs['length']
         self.head = 8
         self.num_hidden = 512
-        self.dr = 0.2
+        self.dr = 0.1
+        self.dropout1 = nn.Dropout(self.dr)
+#         self.conv1 = nn.Conv1d(in_channels=self.num_hidden, out_channels=self.num_hidden, kernel_size=1)
+#         self.relu1 = nn.PReLU()
+
         self.layer0 = nn.Sequential(
             nn.BatchNorm1d(self.input_size),
             nn.Linear(self.input_size, self.num_hidden),
@@ -456,22 +459,17 @@ class TransformerModel(nn.Module):
             nn.TransformerEncoderLayer(d_model =self.num_hidden, nhead=self.head,dropout= self.dr),num_layers=1)
         self.layer2 =  nn.Linear( self.num_hidden, self.output_size)
 
-                      
-    
+
     def forward(self, x):
         #input (batch size, input size)
         x_batch = x.shape[0]
-        x = self.layer0(x)
-        #input (batch size, hidden size)
-        if x_batch%self.length ==0:
-            x = x.contiguous().view(self.length, int(x_batch/self.length), self.num_hidden)
-        else:
-            x = x[:int(self.length*np.floor(x_batch/self.length)),:].clone()
-            x = x.contiguous().view(self.length, int(np.floor(x_batch/self.length)), self.num_hidden)
-        #x (length, 1, hidden size)
+        x = self.layer0(x).unsqueeze(2)
+        #input (batch size, hidden size, 1)
+        x = x.permute(2, 0, 1)
+        #input (1, batch size, hidden size)
         x = self.layer1(x)
-        #x (length, 1, hidden size))
-        x = x.contiguous().view(-1 , self.num_hidden)
+        #x (1, batch size, hidden size)
+        x = x.squeeze()
         #x (batch size, hidden size))
         output = self.layer2(x)
         #x (batch size,output size))
@@ -557,6 +555,7 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
                         if not os.path.exists(f'{model_path}/{model_name}_{version}/'):
                             os.mkdir(f'{model_path}/{model_name}_{version}')
                         save_path = f'{model_path}/{model_name}_{version}/{model_name}_fold_{fold}_'+str(epoch+ 1)+'.pth'
+                        torch.save(best_model, save_path)
                         
                     else:
                         counter += 1
@@ -577,14 +576,14 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
 
         logger.info('Epoch [{}/{}],        Train  loss: {:.4f},         Valid loss: {:.4f},        utility score: {:.4f},       Early stopping counter: {}'\
               .format(epoch + 1, num_epoch, tr_score,  score, uscore, counter))
-    torch.save(best_model, save_path)
+    
     logger.info('The best loss is {:.6f}'.format(best_score))
     learn_hist = pd.DataFrame()
     learn_hist['epoch'] = epoch_list
     learn_hist['valid_loss'] = score_list
     learn_hist['train_loss'] = score_list_tr
-    
-    return model.load_state_dict(best_model), learn_hist, save_path
+    model.load_state_dict(best_model)
+    return model , learn_hist, save_path
 
 
 ##WIP

@@ -1,4 +1,4 @@
-EXT : '001'
+EXT : '003'
 TRAINING : True
 USE_FINETUNE : False
 FOLDS : 5
@@ -8,11 +8,10 @@ INPUTPATH : ../../input
 NUM_EPOCH : 1000
 BATCH_SIZE : 32768
 PATIANCE : 20
-LR : 0.0007
+LR : 0.00065
 MDL_PATH  :  ../models
 MDL_NAME : transformer
 VER : cv_base
 THRESHOLD : 0.5
-SERIES: 1024
-DATAVER : '01'
-COMMENT: 'base ae ext009'
+DATAVER : '05'
+COMMENT: 'changed model arch'

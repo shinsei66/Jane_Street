@@ -36,7 +36,7 @@ def main():
     train = train.query('date > 85').reset_index(drop = True) 
 
     train.fillna(train.mean(),inplace=True)
-    #train = train.query('weight > 0').reset_index(drop = True)
+    train = train.query('weight > 0').reset_index(drop = True)
     
     for i in range(28):
         train[f'tag_{i}_features_mean']=train[df_feat[df_feat.loc[ :, 'tag_'+str(i)]==True].feature.to_list()].mean(axis=1)
@@ -51,7 +51,7 @@ def main():
     resp_cols = ['resp_1', 'resp_2', 'resp_3', 'resp', 'resp_4']
 
     X = train[features].values
-    y = np.stack([(train[c] > 0.001).astype('int') for c in resp_cols]).T
+    y = np.stack([(train[c] > 0).astype('int') for c in resp_cols]).T
 #     y = np.stack([train[c]  for c in resp_cols]).T
     #train['action'] =  np.stack([(train[c] > 0).astype('int') for c in resp_cols]).T
     f_mean = np.mean(train[features[1:]].values,axis=0)

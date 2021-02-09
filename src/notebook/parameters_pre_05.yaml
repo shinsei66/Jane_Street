@@ -1,0 +1,7 @@
+EXT : '001'
+SEED : 66
+INPUTPATH : ../../input
+MDL_PATH  :  ../models
+THRESHOLD : 0
+DATAVER : '05'
+COMMENT: 1, 0 as target and remove weight <=0

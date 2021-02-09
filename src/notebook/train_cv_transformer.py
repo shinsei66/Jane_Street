@@ -44,7 +44,6 @@ def main():
     NUM_EPOCH = config['NUM_EPOCH']
     BATCH_SIZE = config['BATCH_SIZE']
     PATIANCE = config['PATIANCE']
-    SERIES = config['SERIES']
     LR =config['LR']
     DEVICE = torch.cuda.set_device(0)
 #     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,19 +66,12 @@ def main():
     date = np.load( f'{INPUTPATH}/date_{DATAVER}.npy')
     weight = np.load( f'{INPUTPATH}/weight_{DATAVER}.npy' )
     resp = np.load( f'{INPUTPATH}/resp_{DATAVER}.npy')
-    if len(X)%SERIES != 0:
-        dat_len = int(np.floor(len(X)/SERIES))*SERIES
-        f_mean = f_mean[:dat_len]
-        X = X[:dat_len,:]
-        y = y[:dat_len,:]
-        date = date[:dat_len]
-        weight = weight[:dat_len]
-        resp = resp[:dat_len]
+
     
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
     if MDL_NAME == 'transformer':
-        model = TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE, length = SERIES).to(DEVICE)
+        model = TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE).to(DEVICE)
     else:
         raise NameError('Model name is not aligned with the actual model.')
 #     criterion = nn.L1Loss()
@@ -124,8 +116,8 @@ def main():
                         MDL_PATH, MDL_NAME, VER, fold+1,logger, data)
 
             fig_path = f'{MDL_PATH}/{MDL_NAME}_{VER}/figures'
-            
-
+            logger.info(save_path)
+            trained_model.load_state_dict(torch.load(save_path))
             trained_model.eval()
             preds = []       
             for i, data in tqdm(enumerate(val_loader)):
