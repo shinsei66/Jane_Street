@@ -1,0 +1,18 @@
+EXT : '002'
+TRAINING : True
+USE_FINETUNE : True
+FOLDS : 8
+GROUP_GAP : 5
+SEED : 66
+INPUTPATH : ../../input
+NUM_EPOCH : 1000
+BATCH_SIZE : 32768
+PATIANCE : 50
+LR : 0.0007
+MDL_PATH  :  ../models
+WEIGHT: ../models/transformer_ho_base_001/transformer_fold_ho_21.pth
+MDL_NAME : transformer
+VER : fine_tune
+THRESHOLD : 0.5
+DATAVER : '05'
+COMMENT: 'group gap 20 -->5,'

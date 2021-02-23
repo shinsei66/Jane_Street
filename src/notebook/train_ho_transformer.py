@@ -79,11 +79,11 @@ def main():
         
         
         
-    if MDL_NAME == 'resnet':
-        model = ResNetModel(input_size = X.shape[-1], output_size = y.shape[-1]).to(DEVICE)
-        if USE_FINETUNE:
-            logger.info(f'fine tuning initial weight path is : {WEIGHT}')
-            model.load_state_dict(torch.load(WEIGHT))
+    if MDL_NAME == 'transformer':
+            model = TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE).to(DEVICE)
+            if USE_FINETUNE:
+                logger.info(f'fine tuning initial weight path is : {WEIGHT}')
+                model.load_state_dict(torch.load(WEIGHT))
     else:
         raise NameError('Model name is not aligned with the actual model.')
 #     criterion = nn.L1Loss()
@@ -91,8 +91,8 @@ def main():
     criterion = SmoothBCEwLogits(smoothing=label_smoothing)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=LR, weight_decay=1e-5)
-    scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
-#     scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
+#     scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
+    scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)

@@ -1,5 +1,15 @@
+import os
+import json
+import glob
+import subprocess
+import argparse
+from sklearn.utils.validation import _deprecate_positional_args
+from sklearn.model_selection._split import _BaseKFold, indexable, _num_samples
+from sklearn.model_selection import KFold
+import numpy as np
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 from pandas.api.types import is_categorical_dtype
+
 
 def reduce_mem_usage(df, use_float16=False):
     """ iterate through all the columns of a dataframe and modify the data type
@@ -23,7 +33,7 @@ def reduce_mem_usage(df, use_float16=False):
                 elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
                     df[col] = df[col].astype(np.int32)
                 elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
-                    df[col] = df[col].astype(np.int64)  
+                    df[col] = df[col].astype(np.int64)
             else:
                 if use_float16 and c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
                     df[col] = df[col].astype(np.float16)
@@ -31,18 +41,13 @@ def reduce_mem_usage(df, use_float16=False):
                     df[col] = df[col].astype(np.float32)
                 else:
                     df[col] = df[col].astype(np.float64)
-        #else:
-            #df[col] = df[col].astype('category')
+        # else:
+            # df[col] = df[col].astype('category')
     end_mem = df.memory_usage().sum() / 1024**2
     print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
-    print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
+    print('Decreased by {:.1f}%'.format(
+        100 * (start_mem - end_mem) / start_mem))
     return df
-
-
-import numpy as np
-from sklearn.model_selection import KFold
-from sklearn.model_selection._split import _BaseKFold, indexable, _num_samples
-from sklearn.utils.validation import _deprecate_positional_args
 
 
 # modified code for group gaps; source
@@ -143,68 +148,66 @@ class PurgedGroupTimeSeriesSplit(_BaseKFold):
             train_array = []
             test_array = []
 
-            group_st = max(0, group_test_start - group_gap - max_train_group_size)
+            group_st = max(0, group_test_start -
+                           group_gap - max_train_group_size)
             for train_group_idx in unique_groups[group_st:(group_test_start - group_gap)]:
                 train_array_tmp = group_dict[train_group_idx]
-                
+
                 train_array = np.sort(np.unique(
                                       np.concatenate((train_array,
                                                       train_array_tmp)),
                                       axis=None), axis=None)
 
             train_end = train_array.size
- 
+
             for test_group_idx in unique_groups[group_test_start:
                                                 group_test_start +
                                                 group_test_size]:
                 test_array_tmp = group_dict[test_group_idx]
                 test_array = np.sort(np.unique(
-                                              np.concatenate((test_array,
-                                                              test_array_tmp)),
-                                     axis=None), axis=None)
+                    np.concatenate((test_array,
+                                    test_array_tmp)),
+                    axis=None), axis=None)
 
-            test_array  = test_array[group_gap:]
-            
-            
+            test_array = test_array[group_gap:]
+
             if self.verbose > 0:
-                    pass
-                    
+                pass
+
             yield [int(i) for i in train_array], [int(i) for i in test_array]
 
-            
-import argparse
-#https://rightcode.co.jp/blog/information-technology/pytorch-yaml-optimizer-parameter-management-simple-method-complete
+
+# https://rightcode.co.jp/blog/information-technology/pytorch-yaml-optimizer-parameter-management-simple-method-complete
+
+
 def get_args():
     # 引数の導入
     parser = argparse.ArgumentParser(description='Cross Validation Train')
-    parser.add_argument('config_path', type=str, help='Setting parameter(.yaml)')
+    parser.add_argument('config_path', type=str,
+                        help='Setting parameter(.yaml)')
     args = parser.parse_args()
     return args
 
 
-import subprocess
-import glob
-import json
-import os
 def upload_to_kaggle(
-                     
-                     title: str, 
-                     k_id: str,  
-                     path: str, 
-                     comments: str,
-                     update:bool,
-                     logger=None,
-                     extension = '.pth',
-                     subtitle='', 
-                     description="",
-                     isPrivate = True,
-                     licenses = "unknown" ,
-                     keywords = [],
-                     collaborators = []
-                     ):
+
+    title: str,
+    k_id: str,
+    path: str,
+    comments: str,
+    update: bool,
+    logger=None,
+    extension='.pth',
+    subtitle='',
+    description="",
+    isPrivate=True,
+    licenses="unknown",
+    keywords=[],
+    collaborators=[]
+):
     '''
     >> upload_to_kaggle(title, k_id, path,  comments, update)
-    
+
     Arguments
     =========
      title: the title of your dataset.
@@ -225,11 +228,11 @@ def upload_to_kaggle(
     if len(model_list) == 0:
         raise FileExistsError('File does not exist, check the file extention is correct \
         or the file directory exist.')
-    
+
     if path[-1] == '/':
         raise ValueError('Please remove the backslash in the end of the path')
-    
-    data_json =  {
+
+    data_json = {
         "title": title,
         "id": f"{k_id}/{title}",
         "subtitle": subtitle,
@@ -246,11 +249,11 @@ def upload_to_kaggle(
 
         ]
     }
-    
+
     data_list = []
     for mdl in model_list:
         mdl_nm = mdl.replace(path+'/', '')
-        mdl_size = os.path.getsize(mdl) 
+        mdl_size = os.path.getsize(mdl)
         data_dict = {
             "description": comments,
             "name": mdl_nm,
@@ -260,19 +263,20 @@ def upload_to_kaggle(
         data_list.append(data_dict)
     data_json['data'] = data_list
 
-    
     with open(path+'/dataset-metadata.json', 'w') as f:
         json.dump(data_json, f)
-    
-    script0 = ['kaggle',  'datasets', 'create', '-p', f'{path}' , '-m' , f'\"{comments}\"']
-    script1 = ['kaggle',  'datasets', 'version', '-p', f'{path}' , '-m' , f'\"{comments}\"']
 
-    #script0 = ['echo', '1']
-    #script1 = ['echo', '2']
+    script0 = ['kaggle',  'datasets', 'create',
+               '-p', f'{path}', '-m', f'\"{comments}\"']
+    script1 = ['kaggle',  'datasets', 'version',
+               '-p', f'{path}', '-m', f'\"{comments}\"']
 
-    if logger:    
+    # script0 = ['echo', '1']
+    # script1 = ['echo', '2']
+
+    if logger:
         logger.info(data_json)
-        
+
         if update:
             logger.info(script1)
             logger.info(subprocess.check_output(script1))
@@ -281,10 +285,10 @@ def upload_to_kaggle(
             logger.info(script1)
             logger.info(subprocess.check_output(script0))
             logger.info(subprocess.check_output(script1))
-            
+
     else:
         print(data_json)
-        
+
         if update:
             print(script1)
             print(subprocess.check_output(script1))

@@ -9,14 +9,17 @@ import torchvision
 from torch import nn
 import torch.nn.functional as F
 from tqdm import tqdm
-#from tqdm.notebook import tqdm
+# from tqdm.notebook import tqdm
 from torch.utils.data import DataLoader
-#print(torch.__version__)
+# print(torch.__version__)
 import matplotlib.pyplot as plt
 from torch.nn import CrossEntropyLoss, MSELoss
 from torch.nn.modules.loss import _WeightedLoss, _Loss
 from sklearn.metrics import roc_auc_score, roc_curve, log_loss
 import logging
+import lightgbm as lgb
+from lightgbm.callback import _format_eval_result
+import pickle
 
 
 # https://discuss.pytorch.org/t/writing-a-simple-gaussian-noise-layer-in-pytorch/4694
@@ -34,10 +37,11 @@ class GaussianNoise(nn.Module):
             network to generate vectors with smaller values.
     """
 
-    def __init__(self,  sigma=0.1, is_relative_detach=True ):
+    def __init__(self,  sigma=0.1, is_relative_detach=True):
         super().__init__()
         self.sigma = sigma
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu")
         self.is_relative_detach = is_relative_detach
         self.noise = torch.tensor(0).to(self.device)
 
@@ -47,56 +51,17 @@ class GaussianNoise(nn.Module):
         x = x + sampled_noise
         return x
 
-#https://github.com/L1aoXingyu/pytorch-beginner/blob/master/08-AutoEncoder/simple_autoencoder.py
-#https://discuss.pytorch.org/t/pytorch-equivalent-of-keras/29412/2
-class autoencoder(nn.Module):
-    '''
-    >> model = 
-        autoencoder(input_size = X.shape[-1], output_size = y.shape[-1],\
-        noise = 0.1).to(DEVICE)
-    '''
-    def __init__(self, **kwargs):
-        super(autoencoder, self).__init__()
-        input_size = kwargs['input_size']
-        output_size = kwargs['output_size']
-#         device = kwargs['device']
-        noise = kwargs['noise']
-        self.encoder = nn.Sequential(
-            nn.BatchNorm1d(input_size),
-            GaussianNoise(sigma=noise),
-            nn.Linear(input_size, 640),
-            nn.ReLU(True)
-        )
-        self.decoder = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(640, input_size)
-        )
-        self.hidden = nn.Linear(input_size*2, 640)
-        self.bat = nn.BatchNorm1d(640)
-        self.drop = nn.Dropout(0.2)
-        self.hidden2 = nn.Linear(640, output_size)
-        self.act = nn.Sigmoid()
-       
+# https://github.com/L1aoXingyu/pytorch-beginner/blob/master/08-AutoEncoder/simple_autoencoder.py
+# https://discuss.pytorch.org/t/pytorch-equivalent-of-keras/29412/2
 
-    def forward(self, x):
-        x_input = x.clone()
-        x = self.encoder(x)
-        x = self.decoder(x)
-        x = torch.cat((x, x_input),1)
-        x = self.hidden(x)
-        x = self.bat(x)
-        x = self.drop(x)
-        x = self.hidden2(x)
-        #x = self.act(x) #Use when classification
-        return x
 
-    
 class autoencoder2(nn.Module):
     '''
-    >> model = 
+    >> model =
         autoencoder(input_size = X.shape[-1], output_size = y.shape[-1],\
         noise = 0.1).to(DEVICE)
     '''
+
     def __init__(self, **kwargs):
         super(autoencoder2, self).__init__()
         input_size = kwargs['input_size']
@@ -109,12 +74,13 @@ class autoencoder2(nn.Module):
         self.drop = nn.Dropout(dropout_rate)
         self.hidden2 = nn.Linear(640, output_size)
         self.act = nn.Sigmoid()
+        self.x_feat = None
         self.encoder = nn.Sequential(
             nn.BatchNorm1d(input_size),
-            #GaussianNoise(sigma=noise),
+            # GaussianNoise(sigma=noise),
             nn.Dropout(dropout_rate),
             nn.Linear(input_size, 640),
-            #nn.SiLU()
+            # nn.SiLU()
             nn.ReLU(True)
         )
         self.decoder = nn.Sequential(
@@ -135,10 +101,18 @@ class autoencoder2(nn.Module):
         x_input = x.clone()
         x = self.encoder(x)
         x = self.decoder(x)
-        x = torch.cat((x, x_input),1)
+        x = torch.cat((x, x_input), 1)
         x = self.layer(x)
-        #x = self.act(x) #Use when classification
+        # x = self.act(x) #Use when classification
         return x
+
+    def feature(self, x):
+        x_input = x.clone()
+        x = self.encoder(x)
+        x = self.decoder(x)
+        x = torch.cat((x, x_input), 1)
+        return x
+
 
 class SmoothBCEwLogits(_WeightedLoss):
     def __init__(self, weight=None, reduction='mean', smoothing=0.0):
@@ -148,35 +122,35 @@ class SmoothBCEwLogits(_WeightedLoss):
         self.reduction = reduction
 
     @staticmethod
-    def _smooth(targets:torch.Tensor, n_labels:int, smoothing=0.0):
+    def _smooth(targets: torch.Tensor, n_labels: int, smoothing=0.0):
         assert 0 <= smoothing < 1
         with torch.no_grad():
             targets = targets * (1.0 - smoothing) + 0.5 * smoothing
         return targets
 
     def forward(self, inputs, targets):
-        if len(inputs)>len(targets):
-            inputs = inputs[:len(targets),:]
-        elif len(inputs)<len(targets):
-            targets = targets[:len(inputs),:]
+        if len(inputs) > len(targets):
+            inputs = inputs[:len(targets), :]
+        elif len(inputs) < len(targets):
+            targets = targets[:len(inputs), :]
         else:
             pass
-            
-        targets = SmoothBCEwLogits._smooth(targets, inputs.size(-1),
-            self.smoothing)
-        loss = F.binary_cross_entropy_with_logits(inputs, targets,self.weight)
 
-        if  self.reduction == 'sum':
+        targets = SmoothBCEwLogits._smooth(targets, inputs.size(-1),
+                                           self.smoothing)
+        loss = F.binary_cross_entropy_with_logits(inputs, targets, self.weight)
+
+        if self.reduction == 'sum':
             loss = loss.sum()
-        elif  self.reduction == 'mean':
+        elif self.reduction == 'mean':
             loss = loss.mean()
 
         return loss
-    
-    
+
+
 # https://www.kaggle.com/a763337092/pytorch-resnet-starter-inference
 class ResNetModel(nn.Module):
-    def __init__(self,**kwargs):
+    def __init__(self, **kwargs):
         super(ResNetModel, self).__init__()
         input_size = kwargs['input_size']
         output_size = kwargs['output_size']
@@ -249,17 +223,62 @@ class ResNetModel(nn.Module):
         x4 = self.dropout4(x4)
 
         x = torch.cat([x3, x4], 1)
+#         self.x_feat = torch.cat([x3, x4], 1).clone()
 
         x = self.dense5(x)
-#         x = self.act(x) 
+#         x = self.act(x)
 
         return x
 
+    def feature(self, x):
+        x = self.batch_norm0(x)
+        x = self.dropout0(x)
+
+        x1 = self.dense1(x)
+        x1 = self.batch_norm1(x1)
+        # x = F.relu(x)
+        # x = self.PReLU(x)
+        x1 = self.LeakyReLU(x1)
+        x1 = self.dropout1(x1)
+
+        x = torch.cat([x, x1], 1)
+
+        x2 = self.dense2(x)
+        x2 = self.batch_norm2(x2)
+        # x = F.relu(x)
+        # x = self.PReLU(x)
+        x2 = self.LeakyReLU(x2)
+        x2 = self.dropout2(x2)
+
+        x = torch.cat([x1, x2], 1)
+
+        x3 = self.dense3(x)
+        x3 = self.batch_norm3(x3)
+        # x = F.relu(x)
+        # x = self.PReLU(x)
+        x3 = self.LeakyReLU(x3)
+        x3 = self.dropout3(x3)
+
+        x = torch.cat([x2, x3], 1)
+
+        x4 = self.dense4(x)
+        x4 = self.batch_norm4(x4)
+        # x = F.relu(x)
+        # x = self.PReLU(x)
+        x4 = self.LeakyReLU(x4)
+        x4 = self.dropout4(x4)
+
+        x = torch.cat([x3, x4], 1)
+
+        return x
+
+
 class MLPNet (nn.Module):
     '''
-    >> model = 
+    >> model =
         MLPNet(input_size = X.shape[-1], output_size = y.shape[-1] ).to(DEVICE)
     '''
+
     def __init__(self,  **kwargs):
         super(MLPNet, self).__init__()
         input_size = kwargs['input_size']
@@ -267,8 +286,8 @@ class MLPNet (nn.Module):
         self.dr = 0.2
         self.fc1 = nn.Linear(512, 512)
         self.fc2 = nn.Linear(512, output_size)
-        self.dropout1 = nn.Dropout(self.dr )
-        self.dropout2 = nn.Dropout(self.dr )
+        self.dropout1 = nn.Dropout(self.dr)
+        self.dropout2 = nn.Dropout(self.dr)
         self.bat = nn.BatchNorm1d(512)
         self.act = nn.Sigmoid()
         self.layer = nn.Sequential(
@@ -278,18 +297,19 @@ class MLPNet (nn.Module):
             nn.Linear(512, 512*2),
             nn.BatchNorm1d(512*2),
             nn.SiLU(),
-            nn.Dropout(self.dr ),
+            nn.Dropout(self.dr),
             nn.Linear(512*2, 512),
             nn.BatchNorm1d(512),
             nn.SiLU(),
-            nn.Dropout(self.dr )
+            nn.Dropout(self.dr)
         )
+
     def forward(self, x):
         x = self.layer(x)
         x = self.fc2(x)
         return x
 
-    
+
 class CustomDataset:
     def __init__(self, dataset, target):
         self.dataset = dataset
@@ -304,25 +324,7 @@ class CustomDataset:
             'y': torch.tensor(self.target[item, :], dtype=torch.float)
         }
 
-class CustomDataset2:
-    def __init__(self, dataset, target, date, weight, resp):
-        self.dataset = dataset
-        self.target = target
-        self.weight = weight
 
-    def __len__(self):
-        return self.dataset.shape[0]
-
-    def __getitem__(self, item):
-        return {
-            'x': torch.tensor(self.dataset[item, :], dtype=torch.float),
-            'y': torch.tensor(self.target[item, :], dtype=torch.float),
-        }    
-
-    
-
-
-    
 def utility_score_bincount(date, weight, resp, action):
     count_i = len(np.unique(date))
     # print('weight: ', weight)
@@ -335,36 +337,37 @@ def utility_score_bincount(date, weight, resp, action):
     return u
 
 
-
-    
 class unity_loss(_Loss):
     def __init__(self, output, dat, device, i):
         super(unity_loss, self).__init__()
         self.output = output
         self.dat = dat
-        self.device=device
+        self.device = device
         self.i = i
-        ac_b = np.where(np.mean(self.output.cpu().detach().numpy(), axis=1)> 0, 1, 0).astype(int).copy()
+        ac_b = np.where(np.mean(self.output.cpu().detach(
+        ).numpy(), axis=1) > 0, 1, 0).astype(int).copy()
         bat_size = len(ac_b)
         date = self.dat['date'][self.i*bat_size:(self.i+1)*bat_size]
         weight = self.dat['weight'][self.i*bat_size:(self.i+1)*bat_size]
         resp = self.dat['resp'][self.i*bat_size:(self.i+1)*bat_size]
 #         print('{}  {}  {}  {}'.format(date.shape, weight.shape, resp.shape, ac_b[:len(date)].shape))
-        if (date.shape[0] == 0 ) or( ac_b.sum() ==0): 
+        if (date.shape[0] == 0) or (ac_b.sum() == 0):
             self.us = 0
         else:
-            self.us = utility_score_bincount(date, weight, resp, ac_b[:len(date)]) 
+            self.us = utility_score_bincount(
+                date, weight, resp, ac_b[:len(date)])
 
     def forward(self, input, target):
 
-#         loss = torch.tensor(-1*self.us, dtype=torch.float).to(self.device) * F.l1_loss(input, target)
-        loss = torch.tensor(-1*self.us, dtype=torch.float).to(self.device) * F.binary_cross_entropy(input, target)
+        #         loss = torch.tensor(-1*self.us, dtype=torch.float).to(self.device) * F.l1_loss(input, target)
+        loss = torch.tensor(-1*self.us, dtype=torch.float).to(self.device) * \
+            F.binary_cross_entropy(input, target)
         return loss
 
-    
-    
-    
+
 sigmoid = torch.nn.Sigmoid()
+
+
 class Swish(torch.autograd.Function):
     @staticmethod
     def forward(ctx, i):
@@ -378,66 +381,21 @@ class Swish(torch.autograd.Function):
         sigmoid_i = sigmoid(i)
         return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
 
+
 swish = Swish.apply
+
 
 class Swish_module(nn.Module):
     def forward(self, x):
         return swish(x)
 
-class GRUModel(nn.Module):
-    
-    def __init__(self, *kwargs):
-        '''
-        org_feature denote the original features
-        '''
-        super(GRUModel, self).__init__()
-        input_size = kwargs['input_size']
-        output_size = kwargs['output_size']
-        num_hidden = 256
-        
-        self.cnn1 = nn.Sequential(nn.Conv1d(input_size , output_size//2, kernel_size=1, padding=0, stride=1),
-                                  Swish_module())
-        self.cnn2 = nn.Sequential(nn.Conv1d(input_size , output_size//2, kernel_size=3, padding=1, stride=1),
-                                  Swish_module())
-        
-        self.gru1     = nn.GRU(output_size, num_hidden, batch_first=True, bidirectional=True)
-        self.dropout  = nn.Dropout(0.75)
-        self.gru2     = nn.GRU((num_hidden*2+output_size), num_hidden, batch_first=True, bidirectional=True)
-        self.gru3     = nn.GRU((num_hidden*4+output_size), num_hidden, batch_first=True, bidirectional=True)
-        self.fc = nn.Sequential(#nn.Dropout(0.5),
-                                nn.Linear((num_hidden*6+output_size+output_size), num_hidden*2),
-                                nn.ReLU(),
-                                nn.Linear(num_hidden*2, output_size))
-                
- 
-    def forward(self, input, mydata):
-        
-        input = torch.transpose(input, 1, 2)
-        cnn_output1 = self.cnn1(input)
-        cnn_output2 = self.cnn2(input)
-        cnn_output  = torch.cat((cnn_output1, cnn_output2), 1)
-        rnn_input   = torch.transpose(cnn_output, 1, 2)
-        
-        gru1, _     = self.gru1(rnn_input)
-        gru1        = self.dropout(gru1)
-        gru1        = torch.cat((rnn_input, gru1), 2) #densely connected recurrent network https://arxiv.org/pdf/1707.06130.pdf
-        gru2, _     = self.gru2(gru1)
-        gru2        = self.dropout(gru2)
-        gru2        = torch.cat((gru1, gru2), 2)
-        gru3, _     = self.gru3(gru2)
-        gru3        = self.dropout(gru3)
-        gru3        = torch.cat((gru2, gru3), 2)
-        
-        input_final = torch.cat((gru3, rnn_input),2)
-        output = self.fc(input_final)
-        
-        return output 
 
 class TransformerModel(nn.Module):
     '''
-    >> model = 
+    >> model =
         TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE).to(DEVICE)
     '''
+
     def __init__(self,  **kwargs):
         super(TransformerModel, self).__init__()
         self.input_size = kwargs['input_size']
@@ -455,31 +413,28 @@ class TransformerModel(nn.Module):
             nn.Linear(self.input_size, self.num_hidden),
             Swish_module()
         )
-        self.layer1 =   nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model =self.num_hidden, nhead=self.head,dropout= self.dr),num_layers=1)
-        self.layer2 =  nn.Linear( self.num_hidden, self.output_size)
-
+        self.layer1 = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=self.num_hidden, nhead=self.head, dropout=self.dr), num_layers=1)
+        self.layer2 = nn.Linear(self.num_hidden, self.output_size)
 
     def forward(self, x):
-        #input (batch size, input size)
+        # input (batch size, input size)
         x_batch = x.shape[0]
         x = self.layer0(x).unsqueeze(2)
-        #input (batch size, hidden size, 1)
+        # input (batch size, hidden size, 1)
         x = x.permute(2, 0, 1)
-        #input (1, batch size, hidden size)
+        # input (1, batch size, hidden size)
         x = self.layer1(x)
-        #x (1, batch size, hidden size)
+        # x (1, batch size, hidden size)
         x = x.squeeze()
-        #x (batch size, hidden size))
+        # x (batch size, hidden size))
         output = self.layer2(x)
-        #x (batch size,output size))
+        # x (batch size,output size))
         return output
-        
-        
-        
-    
-def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epoch, patiance, \
-                 model_path, model_name, version, fold, logger, dat):
+
+
+def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epoch, patiance,
+                model_path, model_name, version, fold, logger, dat):
     '''
     arguments
     ============
@@ -496,7 +451,7 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
     fold :
     logger :
     data:
-    
+
     returns
     ============
     model : trained model's parameters
@@ -504,16 +459,13 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
     save_path : the best epoch model parameters file path for each fold
     '''
 
-    best_score = 100
-    counter = 0
-    epoch_list = []
-    score_list = []
-    score_list_tr = []
+    best_score, counter = 100, 0
+    epoch_list, score_list, score_list_tr = [], [], []
     train_loader = loaders['train']
     valid_loader = loaders['valid']
+
     for epoch in tqdm(range(num_epoch)):
-        score = 0
-        tr_score = 0
+        score, tr_score = 0, 0
         for phase in ['train', 'valid']:
             if phase == 'train':
                 model.train()
@@ -521,159 +473,50 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
                     optimizer.zero_grad()
                     x = data['x'].to(device)
                     y = data['y'].to(device)
-               
+
                     # ===================forward=====================
                     output = model(x)
                     loss = criterion(output, y)
-                    tr_score +=  loss.data.to('cpu').detach().numpy().copy()/len(train_loader)
+                    tr_score += loss.data.to('cpu').detach().numpy().copy() / \
+                        len(train_loader)
                     # ===================backward====================
                     loss.backward()
                     optimizer.step()
 
-                    
             else:
                 model.eval()
                 with torch.no_grad():
                     for i, data in enumerate(valid_loader):
                         x = data['x'].to(device)
                         y = data['y'].to(device)
-                        output = model(x)                    
-                        loss = torch.mean(criterion(output, y))
-                        score +=  loss.data.to('cpu').detach().numpy().copy()/len(valid_loader)
-
-                    x_vl = torch.tensor(dat['x_vl'], dtype=torch.float).to(device)
-#                     pred = model(x_vl).cpu().detach().numpy()
-                    pred = model(x_vl).sigmoid().cpu().detach().numpy()
-                    action = np.where(np.mean(pred, axis=1)> 0.5, 1, 0).astype(int).copy()
-                    uscore = utility_score_bincount(date=dat['date'][:action.shape[0]] , weight= dat['weight'][:action.shape[0]], resp=dat['resp'] [:action.shape[0]], action = action)
-                    score = -1*uscore
-                    
-                    if np.round(score,decimals=5) < best_score:
-                        counter  = 0
-                        best_score = score
-                        best_model = model.state_dict().copy()
-                        if not os.path.exists(f'{model_path}/{model_name}_{version}/'):
-                            os.mkdir(f'{model_path}/{model_name}_{version}')
-                        save_path = f'{model_path}/{model_name}_{version}/{model_name}_fold_{fold}_'+str(epoch+ 1)+'.pth'
-                        torch.save(best_model, save_path)
-                        
-                    else:
-                        counter += 1
-                        
-                plateau = True
-                if plateau:
-                    scheduler.step(score)
-                else:
-                    scheduler.step()
-
-        if counter == patiance:
-            logger.info('Loss did not improved for {} epochs'.format(patiance))
-            break
-        epoch_list.append(epoch+1)
-        score_list.append(score)
-        score_list_tr.append(tr_score)
-        
-
-        logger.info('Epoch [{}/{}],        Train  loss: {:.4f},         Valid loss: {:.4f},        utility score: {:.4f},       Early stopping counter: {}'\
-              .format(epoch + 1, num_epoch, tr_score,  score, uscore, counter))
-    
-    logger.info('The best loss is {:.6f}'.format(best_score))
-    learn_hist = pd.DataFrame()
-    learn_hist['epoch'] = epoch_list
-    learn_hist['valid_loss'] = score_list
-    learn_hist['train_loss'] = score_list_tr
-    model.load_state_dict(best_model)
-    return model , learn_hist, save_path
-
-
-##WIP
-def train_model_unity(model, criterion, optimizer, scheduler, loaders, device, num_epoch, patiance, \
-                 model_path, model_name, version, fold, logger, dat):
-    '''
-    arguments
-    ============
-    model :
-    criterion :
-    optimizer :
-    loaders :
-    device :
-    num_epoch :
-    patiance : :
-    model_path :
-    model_name :
-    version :
-    fold :
-    logger :
-    data:
-    
-    returns
-    ============
-    model : trained model's parameters
-    learn_hist : learning curve data for each fold
-    save_path : the best epoch model parameters file path for each fold
-    '''
-
-    best_score = 100
-    counter = 0
-    epoch_list = []
-    score_list = []
-    score_list_tr = []
-    train_loader = loaders['train']
-    valid_loader = loaders['valid']
-    for epoch in tqdm(range(num_epoch)):
-        score = 0
-        tr_score = 0
-        for phase in ['train', 'valid']:
-            if phase == 'train':
-                model.train()
-                for i, data in enumerate(train_loader):
-                    optimizer.zero_grad()
-                    x = data['x'].to(device)
-                    y = data['y'].to(device)
-               
-                    # ===================forward=====================
-                    output = model(x)
-                    cr = unity_loss(output, dat, device, i)
-                    loss = cr(output, y)
-#                     loss = criterion(output, y)
-                    tr_score +=  loss.data.to('cpu').detach().numpy().copy()/len(train_loader)
-                    # ===================backward====================
-                    loss.backward()
-                    optimizer.step()
-
-                    
-            else:
-                model.eval()
-                with torch.no_grad():
-                    for i, data in enumerate(valid_loader):
-                        
-                        x = data['x'].to(device)
-                        y = data['y'].to(device)
-
                         output = model(x)
-#                         loss = torch.mean(criterion(output, y))
-                        cr = unity_loss(output, dat, device, i)
-                        loss = torch.mean(cr(output, y))
-                        score +=  loss.data.to('cpu').detach().numpy().copy()/len(valid_loader)
+                        loss = torch.mean(criterion(output, y))
+                        score += loss.data.to('cpu').detach().numpy().copy() / \
+                            len(valid_loader)
 
-                    x_vl = torch.tensor(dat['x_vl'], dtype=torch.float).to(device)
+                    x_vl = torch.tensor(
+                        dat['x_vl'], dtype=torch.float).to(device)
 #                     pred = model(x_vl).cpu().detach().numpy()
                     pred = model(x_vl).sigmoid().cpu().detach().numpy()
-                    action = np.where(np.mean(pred, axis=1)> 0.5, 1, 0).astype(int).copy()
-                    uscore = utility_score_bincount(date=dat['date'] , weight= dat['weight'], resp=dat['resp'] , action = action)
+                    action = np.where(np.mean(pred, axis=1) >
+                                      0.5, 1, 0).astype(int).copy()
+                    uscore = utility_score_bincount(
+                        date=dat['date'][:action.shape[0]], weight=dat['weight'][:action.shape[0]], resp=dat['resp'][:action.shape[0]], action=action)
                     score = -1*uscore
-                    
-                    if np.round(score,decimals=5) < best_score:
-                        counter  = 0
+
+                    if np.round(score, decimals=5) < best_score:
+                        counter = 0
                         best_score = score
                         best_model = model.state_dict().copy()
                         if not os.path.exists(f'{model_path}/{model_name}_{version}/'):
                             os.mkdir(f'{model_path}/{model_name}_{version}')
-                        save_path = f'{model_path}/{model_name}_{version}/{model_name}_fold_{fold}_'+str(epoch+ 1)+'.pth'
-                        
+                        save_path = f'{model_path}/{model_name}_{version}/{model_name}_fold_{fold}_'+str(
+                            epoch + 1)+'.pth'
+                        torch.save(best_model, save_path)
+
                     else:
                         counter += 1
-                        
+
                 plateau = True
                 if plateau:
                     scheduler.step(score)
@@ -686,17 +529,63 @@ def train_model_unity(model, criterion, optimizer, scheduler, loaders, device, n
         epoch_list.append(epoch+1)
         score_list.append(score)
         score_list_tr.append(tr_score)
-        
 
-        logger.info('Epoch [{}/{}],        Train  loss: {:.4f},         Valid loss: {:.4f},        utility score: {:.4f},       Early stopping counter: {}'\
-              .format(epoch + 1, num_epoch, tr_score,  score, uscore, counter))
-    torch.save(best_model, save_path)
+        logger.info('Epoch [{}/{}],        Train  loss: {:.4f},         Valid loss: {:.4f},  \
+        utility score: {:.4f},       Early stopping counter: {}'
+                    .format(epoch + 1, num_epoch, tr_score,  score, uscore, counter))
+
     logger.info('The best loss is {:.6f}'.format(best_score))
     learn_hist = pd.DataFrame()
     learn_hist['epoch'] = epoch_list
     learn_hist['valid_loss'] = score_list
     learn_hist['train_loss'] = score_list_tr
-    
     model.load_state_dict(best_model)
-    
     return model, learn_hist, save_path
+
+
+# https://amalog.hateblo.jp/entry/lightgbm-logging-callback
+def log_evaluation(logger, period=1, show_stdv=True, level=logging.DEBUG):
+    def _callback(env):
+        if period > 0 and env.evaluation_result_list and (env.iteration + 1) % period == 0:
+            result = '\t'.join([_format_eval_result(x, show_stdv)
+                                for x in env.evaluation_result_list])
+            logger.log(level, '[{}]\t{}'.format(env.iteration+1, result))
+    _callback.order = 10
+    return _callback
+
+
+def train_lgb(param, data, num_round, disp, patiance, save, logger, save_path, n):
+    """
+    >> model = train_lgb(param, data, num_round, disp, PATIANCE, True, logger,  save_path, n)
+    parameters
+    ===========
+    param:
+    data:
+    num_round:
+    disp:
+    patiance:
+    save:
+    logger:
+    save_path:
+    n: index to show which resp the lgb trained by resp_n
+
+
+    returns
+    ===========
+    model: lightgbm predictor
+    """
+
+    trn_data, val_data = data['trn'], data['val']
+    callbacks = [log_evaluation(logger, period=disp)]
+    model = lgb.train(param, trn_data, num_round, valid_sets=[trn_data, val_data], verbose_eval=disp,
+                      early_stopping_rounds=patiance, callbacks=callbacks)
+
+    if save:
+        if not os.path.exists(f'{save_path}/'):
+            os.mkdir(f'{save_path}')
+        save_path = f'{save_path}/lightgbm_resp_{n}.pickle'
+
+        with open(save_path, mode='wb') as f:
+            pickle.dump(model, f)
+
+    return model

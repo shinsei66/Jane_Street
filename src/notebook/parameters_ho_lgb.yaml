@@ -1,0 +1,18 @@
+EXT : '001'
+TRAINING : True
+USE_FINETUNE : True
+FOLDS : 8
+GROUP_GAP : 5
+SEED : 66
+INPUTPATH : ../../input
+NUM_EPOCH : 1000
+BATCH_SIZE : 32768
+PATIANCE : 20
+LR : 0.006
+MDL_PATH  :  ../models
+WEIGHT: ../models/resnet_hold_out_001/resnet_fold_ho_23.pth
+MDL_NAME : lightgbm
+VER : hold_out
+THRESHOLD : 0.5
+DATAVER : '05'
+COMMENT: 'resnet + lightgbm'

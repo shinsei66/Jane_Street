@@ -1,5 +1,7 @@
 import glob
 #import cupy as cp
+import warnings
+warnings.filterwarnings('ignore')
 import os
 import gc
 import sys
@@ -20,8 +22,7 @@ from torch.utils.data import DataLoader
 print(torch.__version__)
 import matplotlib.pyplot as plt
 from numba import njit
-#%matplotlib inline
-from janest_model import MLPNet , CustomDataset, train_model, autoencoder2, CustomDataset2
+from janest_model import CustomDataset, train_model, autoencoder2, ResNetModel, SmoothBCEwLogits, utility_score_bincount, TransformerModel
 from utils import PurgedGroupTimeSeriesSplit, get_args
 
 
@@ -43,14 +44,16 @@ def main():
     NUM_EPOCH = config['NUM_EPOCH']
     BATCH_SIZE = config['BATCH_SIZE']
     PATIANCE = config['PATIANCE']
-    DATAVER = config['DATAVER']
     LR =config['LR']
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(DEVICE)
+    WEIGHT = config['WEIGHT']
+    DEVICE = torch.cuda.set_device(0)
+#     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     print(DEVICE)
     MDL_PATH  =config['MDL_PATH']
     MDL_NAME =config['MDL_NAME']
     VER = config['VER']
     THRESHOLD = config['THRESHOLD']
+    DATAVER = config['DATAVER']
     
     format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     logging.basicConfig(level = logging.INFO,format=format_str, filename=f'../logs/{MDL_NAME}_{VER}_{EXT}.log')
@@ -58,18 +61,12 @@ def main():
     logger.info(config)
     logger.info(sys.argv)
     
-#     f_mean = np.load( f'{INPUTPATH}/f_mean_{DATAVER}.npy')
-#     X = np.load( f'{INPUTPATH}/X_{DATAVER}.npy')
-#     y = np.load( f'{INPUTPATH}/y_{DATAVER}.npy')
-#     date = np.load( f'{INPUTPATH}/date_{DATAVER}.npy')
-#     weight = np.load( f'{INPUTPATH}/weight_{DATAVER}.npy' )
-#     resp = np.load( f'{INPUTPATH}/resp_{DATAVER}.npy')
-    f_mean = np.load( f'{INPUTPATH}/f_mean.npy')
-    X = np.load( f'{INPUTPATH}/X.npy')
-    y = np.load( f'{INPUTPATH}/y.npy')
-    date = np.load( f'{INPUTPATH}/date.npy')
-    weight = np.load( f'{INPUTPATH}/weight.npy' )
-    resp = np.load( f'{INPUTPATH}/resp.npy')
+    f_mean = np.load( f'{INPUTPATH}/f_mean_{DATAVER}.npy')
+    X = np.load( f'{INPUTPATH}/X_{DATAVER}.npy')
+    y = np.load( f'{INPUTPATH}/y_{DATAVER}.npy')
+    date = np.load( f'{INPUTPATH}/date_{DATAVER}.npy')
+    weight = np.load( f'{INPUTPATH}/weight_{DATAVER}.npy' )
+    resp = np.load( f'{INPUTPATH}/resp_{DATAVER}.npy')
     
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
@@ -83,27 +80,36 @@ def main():
         
         
     if MDL_NAME == 'autoencoder':
-        model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1], noise=0.1).to(DEVICE)
+        model = autoencoder2(input_size = X.shape[-1], output_size = y.shape[-1],noise=0.2).to(DEVICE)
+        if USE_FINETUNE:
+            logger.info(f'fine tuning initial weight path is : {WEIGHT}')
+            model.load_state_dict(torch.load(WEIGHT))
     else:
         raise NameError('Model name is not aligned with the actual model.')
-    criterion = nn.L1Loss()
+#     criterion = nn.L1Loss()
+    label_smoothing = 1e-2
+    criterion = SmoothBCEwLogits(smoothing=label_smoothing)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=LR, weight_decay=1e-5)
-    #scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5)
-    scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min',verbose=True,patience=5,factor=0.5)
+#     scheduler = CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-8, last_epoch=-1, verbose=True)
     logger.info(model)
     
     VER = (VER + '_' + EXT)
     
     if TRAINING:
         sts = time.time()
-        learn_hist_list = []
-        save_path_list = []
-
+        learn_hist_list, save_path_list  = [],[]
 
         X_tr, X_val = X[tr], X[vl]
         y_tr, y_val = y[tr], y[vl]
-        w_tr, w_val = weight[tr], weight[vl]
+        date_vl = date[vl].copy()
+        weight_vl = weight[vl].copy()
+        resp_vl = resp[vl].copy()
+        action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
+#             print('{}  {}  {}  {}'.format(date_vl.shape, weight_vl.shape, resp_vl.shape, action_ans_vl.shape))
+        data = {'date': date_vl, 'weight': weight_vl, 'resp': resp_vl, 'ans':action_ans_vl,
+               'x_vl': X_val}
         trn_dat = CustomDataset(X_tr, y_tr)
         val_dat = CustomDataset(X_val, y_val)
         trn_loader = DataLoader(trn_dat , batch_size=BATCH_SIZE, shuffle=False)
@@ -111,9 +117,12 @@ def main():
         loaders = {'train':trn_loader, 'valid': val_loader}
         trained_model, learn_hist, save_path =\
             train_model(model, criterion, optimizer, scheduler, loaders, DEVICE, NUM_EPOCH, PATIANCE, \
-                    MDL_PATH, MDL_NAME, VER, 'ho',logger)
+                    MDL_PATH, MDL_NAME, VER, 'ho',logger, data)
 
         fig_path = f'{MDL_PATH}/{MDL_NAME}_{VER}/figures'
+        logger.info(save_path)
+       
+        
         if not os.path.exists(fig_path):
             os.mkdir(fig_path)
         fig = plt.figure()
@@ -138,18 +147,9 @@ def main():
         all_hist.to_csv(f'{MDL_PATH}/{MDL_NAME}_{VER}/history/{MDL_NAME}_learning_history.csv', index=False)
         ed = time.time()
         logger.info('Training process takes {:.2f} min.'.format((ed-sts)/60))
+
     
-    
-    
-    @njit(fastmath = True)
-    def utility_score_numba(date, weight, resp, action):
-        Pi = np.bincount(date, weight * resp * action)
-        t = np.sum(Pi) / np.sqrt(np.sum(Pi ** 2)) * np.sqrt(250 / len(Pi))
-        u = min(max(t, 0), 6) * np.sum(Pi)
-        return u
-    
-    
-    model_list  = glob.glob(f'{MDL_PATH}/{MDL_NAME}_{VER}/*.pth')
+
     loop = int(np.round(len(X)/BATCH_SIZE))
     pred_all = np.array([])
     
@@ -158,56 +158,45 @@ def main():
         for fold, (tr, vl) in enumerate(gkf.split(y, y, date)):
             pass
     
-    for n in tqdm(range(loop)):
-        x_t = X[vl].copy()
-        x_tt = x_t[BATCH_SIZE*n:BATCH_SIZE*(n+1),:]
-        if np.isnan(x_tt[:, 1:].sum()):
-            x_tt[:, 1:] = np.nan_to_num(x_tt[:, 1:]) + np.isnan(x_tt[:, 1:]) * f_mean
-        pred = 0.0
-        X_test = torch.FloatTensor(x_tt).to(DEVICE)
-        for mdl in model_list:
-            load_weights = torch.load(mdl)
-            model.load_state_dict(load_weights)
-            model.eval()
-            pred += model(X_test).cpu().detach().numpy() 
-        if len(pred_all) == 0:
-            pred_all = pred.copy()
-        else:
-            pred_all = np.vstack([pred_all, pred]).copy()
-
-
-    #action = np.where(pred_all[:,0]> THRESHOLD, 1, 0).astype(int).copy()
-    action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
-
-    
-    if np.sum(action)>0:
-        #opt_threshold, opt_utility = decision_threshold_optimisation(f(pred_all) , date, weight, resp, low = f(pred_all).min(), high = f(pred_all).max())
-        date_vl = date[vl].copy()
-        weight_vl = weight[vl].copy()
-        resp_vl = resp[vl].copy()
-        action_ans_vl = np.where(y[vl,0]> THRESHOLD, 1, 0).astype(int).copy()
-        cv_score = utility_score_numba(date_vl , weight_vl , resp_vl , action)
-        max_score = utility_score_numba(date_vl , weight_vl , resp_vl , action_ans_vl )
-        logger.info('CV score is {}, Max score is {}, return ratio is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
-
+        X_tr, X_val = X[tr], X[vl]
+        y_tr, y_val = y[tr], y[vl]
+#         trn_dat = CustomDataset(X_tr, y_tr)
+        val_dat = CustomDataset(X_val, y_val)
+#         trn_loader = DataLoader(trn_dat , batch_size=BATCH_SIZE, shuffle=False)
+        val_loader = DataLoader(val_dat , batch_size=BATCH_SIZE, shuffle=False)
+        model_list  = glob.glob(f'{MDL_PATH}/{MDL_NAME}_{VER}/*.pth')
+        preds = [] 
         
-    else:
-        raise ZeroDivisionError
+        
+        for i, data in tqdm(enumerate(val_loader)):
+            x = data['x'].to(DEVICE)
+            outputs = np.zeros((len(x), 5))
+            with torch.no_grad():
+                for mdl in model_list:
+                    load_weights = torch.load(mdl)
+                    model.load_state_dict(load_weights)
+                    model.eval()
+#                         outputs += model(x).sigmoid().detach().cpu().numpy()/len(model_list)
+                    outputs += model(x).detach().cpu().numpy()/len(model_list)
+                preds.append(outputs)
+
+        pred_all  = np.concatenate(preds)
+        action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
+        if np.sum(action)>0:
+            date_vl = date[vl].copy()
+            weight_vl = weight[vl].copy()
+            resp_vl = resp[vl].copy()
+            action_ans_vl = np.where(np.mean(y[vl,:])> THRESHOLD, 1, 0).astype(int).copy()
+            cv_score = utility_score_bincount(date_vl[:action.shape[0]] , weight_vl[:action.shape[0]] , resp_vl[:action.shape[0]] , action)
+            max_score = utility_score_bincount(date_vl , weight_vl , resp_vl , action_ans_vl )
+#                 print('CV score is {}, Max score is {}, return ration is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
+            logger.info('CV score is {}, Max score is {}, return ratio is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
+        else:
+            raise ZeroDivisionError
+        
+
     
 
             
 if __name__ == "__main__":
     main()
-#     args = get_args()
-#     with open(args.config_path, 'r') as f:
-#         config = yaml.safe_load(f)
-#     print(config['USE_FINETUNE'])
-#     EXT = config['EXT']
-#     logging.basicConfig(level = 'DEBUG', filename=f'../logs/{EXT}.log')
-#     logger = logging.getLogger('Log')
-#     logger.info(config)
-#     logger.info(sys.argv)
-
-    
-    #with open(f'../logs/param_{EXT}.json', mode='w') as f:
-    #    f.write(str(config))

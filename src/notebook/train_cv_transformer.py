@@ -91,8 +91,7 @@ def main():
     
     if TRAINING:
         sts = time.time()
-        learn_hist_list = []
-        save_path_list = []
+        learn_hist_list,  save_path_list = [], []
         for fold, (tr, vl) in enumerate(gkf.split(y, y, date)):
             logger.info('Fold : {}'.format(fold+1))
 
@@ -191,8 +190,6 @@ def main():
                     preds.append(outputs)
 
             pred_all  = np.concatenate(preds)
-            
-
 #             action = np.where(pred_all[:,0] >= THRESHOLD, 1, 0).astype(int).copy()
             action = np.where(np.mean(pred_all, axis=1)> THRESHOLD, 1, 0).astype(int).copy()
             if np.sum(action)>0:
