@@ -1,25 +1,17 @@
 import pandas as pd
 import numpy as np
-import cupy as cp
 import os
-import gc
-import time
 import torch
-import torchvision
 from torch import nn
 import torch.nn.functional as F
 from tqdm import tqdm
-# from tqdm.notebook import tqdm
-from torch.utils.data import DataLoader
-# print(torch.__version__)
-import matplotlib.pyplot as plt
-from torch.nn import CrossEntropyLoss, MSELoss
 from torch.nn.modules.loss import _WeightedLoss, _Loss
-from sklearn.metrics import roc_auc_score, roc_curve, log_loss
 import logging
 import lightgbm as lgb
 from lightgbm.callback import _format_eval_result
 import pickle
+from typing import Union, Optional, List
+import collections
 
 
 # https://discuss.pytorch.org/t/writing-a-simple-gaussian-noise-layer-in-pytorch/4694
@@ -37,7 +29,7 @@ class GaussianNoise(nn.Module):
             network to generate vectors with smaller values.
     """
 
-    def __init__(self,  sigma=0.1, is_relative_detach=True):
+    def __init__(self, sigma=0.1, is_relative_detach=True):
         super().__init__()
         self.sigma = sigma
         self.device = torch.device(
@@ -69,7 +61,7 @@ class autoencoder2(nn.Module):
 #         device = kwargs['device']
         noise = kwargs['noise']
         dropout_rate = 0.4
-        self.hidden = nn.Linear(input_size*2, 640)
+        self.hidden = nn.Linear(input_size * 2, 640)
         self.bat = nn.BatchNorm1d(640)
         self.drop = nn.Dropout(dropout_rate)
         self.hidden2 = nn.Linear(640, output_size)
@@ -88,7 +80,7 @@ class autoencoder2(nn.Module):
             nn.Linear(640, input_size)
         )
         self.layer = nn.Sequential(
-            nn.Linear(input_size*2, 640),
+            nn.Linear(input_size * 2, 640),
             nn.BatchNorm1d(640),
             nn.Dropout(dropout_rate),
             nn.Linear(640, 320),
@@ -164,19 +156,19 @@ class ResNetModel(nn.Module):
         self.batch_norm1 = nn.BatchNorm1d(hidden_size)
         self.dropout1 = nn.Dropout(dropout_rate)
 
-        self.dense2 = nn.Linear(hidden_size+input_size, hidden_size)
+        self.dense2 = nn.Linear(hidden_size + input_size, hidden_size)
         self.batch_norm2 = nn.BatchNorm1d(hidden_size)
         self.dropout2 = nn.Dropout(dropout_rate)
 
-        self.dense3 = nn.Linear(hidden_size+hidden_size, hidden_size)
+        self.dense3 = nn.Linear(hidden_size + hidden_size, hidden_size)
         self.batch_norm3 = nn.BatchNorm1d(hidden_size)
         self.dropout3 = nn.Dropout(dropout_rate)
 
-        self.dense4 = nn.Linear(hidden_size+hidden_size, hidden_size)
+        self.dense4 = nn.Linear(hidden_size + hidden_size, hidden_size)
         self.batch_norm4 = nn.BatchNorm1d(hidden_size)
         self.dropout4 = nn.Dropout(dropout_rate)
 
-        self.dense5 = nn.Linear(hidden_size+hidden_size, output_size)
+        self.dense5 = nn.Linear(hidden_size + hidden_size, output_size)
 
         self.Relu = nn.ReLU(inplace=True)
         self.PReLU = nn.PReLU()
@@ -279,7 +271,7 @@ class MLPNet (nn.Module):
         MLPNet(input_size = X.shape[-1], output_size = y.shape[-1] ).to(DEVICE)
     '''
 
-    def __init__(self,  **kwargs):
+    def __init__(self, **kwargs):
         super(MLPNet, self).__init__()
         input_size = kwargs['input_size']
         output_size = kwargs['output_size']
@@ -294,11 +286,11 @@ class MLPNet (nn.Module):
             nn.BatchNorm1d(input_size),
             nn.Linear(input_size, 512),
             nn.SiLU(),
-            nn.Linear(512, 512*2),
-            nn.BatchNorm1d(512*2),
+            nn.Linear(512, 512 * 2),
+            nn.BatchNorm1d(512 * 2),
             nn.SiLU(),
             nn.Dropout(self.dr),
-            nn.Linear(512*2, 512),
+            nn.Linear(512 * 2, 512),
             nn.BatchNorm1d(512),
             nn.SiLU(),
             nn.Dropout(self.dr)
@@ -347,9 +339,9 @@ class unity_loss(_Loss):
         ac_b = np.where(np.mean(self.output.cpu().detach(
         ).numpy(), axis=1) > 0, 1, 0).astype(int).copy()
         bat_size = len(ac_b)
-        date = self.dat['date'][self.i*bat_size:(self.i+1)*bat_size]
-        weight = self.dat['weight'][self.i*bat_size:(self.i+1)*bat_size]
-        resp = self.dat['resp'][self.i*bat_size:(self.i+1)*bat_size]
+        date = self.dat['date'][self.i * bat_size:(self.i + 1) * bat_size]
+        weight = self.dat['weight'][self.i * bat_size:(self.i + 1) * bat_size]
+        resp = self.dat['resp'][self.i * bat_size:(self.i + 1) * bat_size]
 #         print('{}  {}  {}  {}'.format(date.shape, weight.shape, resp.shape, ac_b[:len(date)].shape))
         if (date.shape[0] == 0) or (ac_b.sum() == 0):
             self.us = 0
@@ -360,8 +352,8 @@ class unity_loss(_Loss):
     def forward(self, input, target):
 
         #         loss = torch.tensor(-1*self.us, dtype=torch.float).to(self.device) * F.l1_loss(input, target)
-        loss = torch.tensor(-1*self.us, dtype=torch.float).to(self.device) * \
-            F.binary_cross_entropy(input, target)
+        loss = torch.tensor(-1 * self.us, dtype=torch.float).to(
+            self.device) * F.binary_cross_entropy(input, target)
         return loss
 
 
@@ -396,7 +388,7 @@ class TransformerModel(nn.Module):
         TransformerModel(input_size = X.shape[-1], output_size = y.shape[-1], batch_size = BATCH_SIZE).to(DEVICE)
     '''
 
-    def __init__(self,  **kwargs):
+    def __init__(self, **kwargs):
         super(TransformerModel, self).__init__()
         self.input_size = kwargs['input_size']
         self.output_size = kwargs['output_size']
@@ -414,12 +406,15 @@ class TransformerModel(nn.Module):
             Swish_module()
         )
         self.layer1 = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=self.num_hidden, nhead=self.head, dropout=self.dr), num_layers=1)
+            nn.TransformerEncoderLayer(
+                d_model=self.num_hidden,
+                nhead=self.head,
+                dropout=self.dr),
+            num_layers=1)
         self.layer2 = nn.Linear(self.num_hidden, self.output_size)
 
     def forward(self, x):
         # input (batch size, input size)
-        x_batch = x.shape[0]
         x = self.layer0(x).unsqueeze(2)
         # input (batch size, hidden size, 1)
         x = x.permute(2, 0, 1)
@@ -433,8 +428,21 @@ class TransformerModel(nn.Module):
         return output
 
 
-def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epoch, patiance,
-                model_path, model_name, version, fold, logger, dat):
+def train_model(
+        model,
+        criterion,
+        optimizer,
+        scheduler,
+        loaders,
+        device,
+        num_epoch,
+        patiance,
+        model_path,
+        model_name,
+        version,
+        fold,
+        logger,
+        dat):
     '''
     arguments
     ============
@@ -458,8 +466,8 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
     learn_hist : learning curve data for each fold
     save_path : the best epoch model parameters file path for each fold
     '''
-
-    best_score, counter = 100, 0
+    es = Early_Stopping('min', patiance)
+    counter = es.counter
     epoch_list, score_list, score_list_tr = [], [], []
     train_loader = loaders['train']
     valid_loader = loaders['valid']
@@ -500,45 +508,34 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
                     pred = model(x_vl).sigmoid().cpu().detach().numpy()
                     action = np.where(np.mean(pred, axis=1) >
                                       0.5, 1, 0).astype(int).copy()
-                    uscore = utility_score_bincount(
-                        date=dat['date'][:action.shape[0]], weight=dat['weight'][:action.shape[0]], resp=dat['resp'][:action.shape[0]], action=action)
-                    score = -1*uscore
+                    uscore = utility_score_bincount(date=dat['date'][:action.shape[0]],
+                                                    weight=dat['weight'][:action.shape[0]],
+                                                    resp=dat['resp'][:action.shape[0]],
+                                                    action=action)
+                    score = -1 * uscore
+                    stop, counter, best_score,best_model, save_path\
+                    = es(score, model, model_path, model_name, version, fold, epoch, logger)
 
-                    if np.round(score, decimals=5) < best_score:
-                        counter = 0
-                        best_score = score
-                        best_model = model.state_dict().copy()
-                        if not os.path.exists(f'{model_path}/{model_name}_{version}/'):
-                            os.mkdir(f'{model_path}/{model_name}_{version}')
-                        save_path = f'{model_path}/{model_name}_{version}/{model_name}_fold_{fold}_'+str(
-                            epoch + 1)+'.pth'
-                        torch.save(best_model, save_path)
-
-                    else:
-                        counter += 1
-
-                plateau = True
-                if plateau:
+                
+                if type(scheduler) == torch.optim.lr_scheduler.ReduceLROnPlateau:
                     scheduler.step(score)
                 else:
                     scheduler.step()
-
-        if counter == patiance:
+        print(stop)
+        if stop==True:
             logger.info('Loss did not improved for {} epochs'.format(patiance))
             break
-        epoch_list.append(epoch+1)
+        epoch_list.append(epoch + 1)
         score_list.append(score)
         score_list_tr.append(tr_score)
 
-        logger.info('Epoch [{}/{}],        Train  loss: {:.4f},         Valid loss: {:.4f},  \
-        utility score: {:.4f},       Early stopping counter: {}'
-                    .format(epoch + 1, num_epoch, tr_score,  score, uscore, counter))
+        logger.info(
+            'Epoch [{}/{}],        Train  loss: {:.4f},         Valid loss: {:.4f},  \
+        utility score: {:.4f},       Early stopping counter: {}' .format(
+                epoch + 1, num_epoch, tr_score, score, uscore, counter))
 
     logger.info('The best loss is {:.6f}'.format(best_score))
-    learn_hist = pd.DataFrame()
-    learn_hist['epoch'] = epoch_list
-    learn_hist['valid_loss'] = score_list
-    learn_hist['train_loss'] = score_list_tr
+    learn_hist = save_epoch_history(epoch_list, score_list_tr, score_list)
     model.load_state_dict(best_model)
     return model, learn_hist, save_path
 
@@ -546,15 +543,25 @@ def train_model(model, criterion, optimizer, scheduler, loaders, device, num_epo
 # https://amalog.hateblo.jp/entry/lightgbm-logging-callback
 def log_evaluation(logger, period=1, show_stdv=True, level=logging.DEBUG):
     def _callback(env):
-        if period > 0 and env.evaluation_result_list and (env.iteration + 1) % period == 0:
+        if period > 0 and env.evaluation_result_list and (
+                env.iteration + 1) % period == 0:
             result = '\t'.join([_format_eval_result(x, show_stdv)
                                 for x in env.evaluation_result_list])
-            logger.log(level, '[{}]\t{}'.format(env.iteration+1, result))
+            logger.log(level, '[{}]\t{}'.format(env.iteration + 1, result))
     _callback.order = 10
     return _callback
 
 
-def train_lgb(param, data, num_round, disp, patiance, save, logger, save_path, n):
+def train_lgb(
+        param,
+        data,
+        num_round,
+        disp,
+        patiance,
+        save,
+        logger,
+        save_path,
+        n):
     """
     >> model = train_lgb(param, data, num_round, disp, PATIANCE, True, logger,  save_path, n)
     parameters
@@ -577,15 +584,140 @@ def train_lgb(param, data, num_round, disp, patiance, save, logger, save_path, n
 
     trn_data, val_data = data['trn'], data['val']
     callbacks = [log_evaluation(logger, period=disp)]
-    model = lgb.train(param, trn_data, num_round, valid_sets=[trn_data, val_data], verbose_eval=disp,
-                      early_stopping_rounds=patiance, callbacks=callbacks)
+    model = lgb.train(
+        param,
+        trn_data,
+        num_round,
+        valid_sets=[
+            trn_data,
+            val_data],
+        verbose_eval=disp,
+        early_stopping_rounds=patiance,
+        callbacks=callbacks)
 
     if save:
-        if not os.path.exists(f'{save_path}/'):
-            os.mkdir(f'{save_path}')
-        save_path = f'{save_path}/lightgbm_resp_{n}.pickle'
-
-        with open(save_path, mode='wb') as f:
-            pickle.dump(model, f)
-
+        save_model(model, save_path, f'lightgbm_resp_{n}', 'pickle', logger)
     return model
+
+
+def save_model(
+    model:Union[lgb.basic.Booster, collections.OrderedDict], 
+    save_path:str, 
+    filename:str, 
+    extension:str, 
+    logger:Optional[logging.Logger]=None) -> None:
+    """save model weight parameters
+    >> save_model(model, save_path, filename, extension)
+    
+    Parameters:
+    ===============
+    model: model weight files
+    save_path: the directory path of the model to be saved
+    filename: the filename of the model weight files
+    extension: extension type of the model files
+    
+    Returns:
+    ===============
+    None
+    """
+
+    allpath = f'{save_path}/{filename}.{extension}'
+    if not os.path.exists(f'{save_path}/'):
+            os.mkdir(f'{save_path}')
+            
+    if extension == 'pickle':
+        with open(allpath, mode='wb') as f:
+            pickle.dump(model, f)
+        if logger:
+            logger.info('Successfully saved in {}'.format(allpath))
+    elif extension in ('pth'):
+        torch.save(model, allpath)
+        if logger:
+            logger.info('Successfully saved in {}'.format(allpath))
+
+def save_epoch_history(
+    epoch_list:List, 
+    train_loss_list:List, 
+    valid_loss_list: List) -> pd.core.frame.DataFrame:
+    """saving training loss histories
+    >> learn_hist = save_epoch_history(epoch_list, train_loss_list, valid_loss_list)
+    
+    Parameters:
+    ===============
+    epoch_list: the list of the training epochs
+    train_loss_list: the list of the train losses
+    valid_loss_list: the list of the valid losses
+    
+    Returns:
+    ===============
+    learn_hist: pandas dataframe of the learning history
+    """
+    learn_hist = pd.DataFrame()
+    learn_hist['epoch'] = epoch_list
+    learn_hist['train_loss'] = train_loss_list
+    learn_hist['valid_loss'] = valid_loss_list
+    
+    return learn_hist
+
+class Early_Stopping():
+    """early stopping function
+    >> es = Early_Stopping('min', 1)
+    
+    Parameters:
+    ===============
+    mode: 'min' or 'max'
+    patiance:
+    
+    Returns:
+    ===============
+   
+    """
+    
+    def __init__(self, mode:str, patiance:int):
+        self.mode = mode
+        if mode == 'min':
+            self.best_score = np.inf
+        elif mode == 'max':
+            self.best_score = -np.inf
+        self.patiance = patiance
+        self.counter = 0
+        self.if_stop = False
+        self.best_model = None
+    
+    
+    def __call__(self, score, model, model_path, model_name, version, fold, epoch, logger) -> bool:
+        """early stopping function
+        >> stop, counter, best_score,best_model, save_path
+        = Early_Stopping(score, model, model_path, model_name, version, fold, epoch, logger)
+
+        Parameters:
+        ===============
+        score:
+        model_path:
+        model_name:
+        version:
+        fold:
+        epoch:
+        logger:
+
+        Returns:
+        ===============
+        if_stop: boolean controller to stop training epochs
+        """
+        save_path= f'{model_path}/{model_name}_{version}'
+        if np.round(score, decimals=5) < self.best_score:
+            self.counter = 0
+            self.best_score = score
+            self.best_model = model.state_dict().copy()
+            filename = f'{model_name}_fold_{fold}_' + str(epoch + 1)            
+            save_model(self.best_model, save_path, filename, 'pth', logger)
+            return self.if_stop, self.counter, self.best_score, self.best_model, save_path
+
+        else:
+            self.counter += 1
+                        
+            if self.counter == self.patiance:
+                self.if_stop = True
+                return self.if_stop, self.counter, self.best_score, self.best_model, save_path
+            else:
+                return self.if_stop, self.counter, self.best_score, self.best_model, save_path

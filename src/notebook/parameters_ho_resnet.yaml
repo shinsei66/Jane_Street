@@ -1,13 +1,13 @@
-EXT : '003'
+EXT : '004'
 TRAINING : True
-USE_FINETUNE : True
+USE_FINETUNE : False
 FOLDS : 8
 GROUP_GAP : 5
 SEED : 66
 INPUTPATH : ../../input
-NUM_EPOCH : 1000
+NUM_EPOCH : 20
 BATCH_SIZE : 32768
-PATIANCE : 40
+PATIANCE : 1
 LR : 0.0005
 MDL_PATH  :  ../models
 WEIGHT: ../models/resnet_hold_out_001/resnet_fold_ho_23.pth
@@ -15,4 +15,4 @@ MDL_NAME : resnet
 VER : hold_out
 THRESHOLD : 0.5
 DATAVER : '05'
-COMMENT: 'plateau factor 0.1--> 0.5, patiance 30--> 40'
+COMMENT: 'test'

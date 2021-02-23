@@ -101,18 +101,20 @@ def main():
           'min_child_samples': 79,
           'objective': 'binary',
           'learning_rate': LR,
-          "boosting_type": "gbdt",
-          "subsample_freq": 3,
-          "subsample": 0.9,
-          "bagging_seed": 66,
-          "metric": 'binary_logloss',
+          'boosting_type': "gbdt",
+          'subsample_freq': 3,
+          'subsample': 0.9,
+          'bagging_seed': 66,
+          'metric': 'binary_logloss',
           "verbosity": -1,
           'reg_alpha': 0.3,
           'reg_lambda': 0.3,
           'colsample_bytree': 0.9,
+        'device_type' : 'gpu'
          }
     
     save_path = f'{MDL_PATH}/{MDL_NAME}_{VER}/'
+    sts = time.time()
     for n in range(5):
         trn_data = lgb.Dataset(train, label=y_tr[:,n])
         val_data = lgb.Dataset(valid, label=y_val[:,n])
@@ -126,8 +128,9 @@ def main():
         y_pred = np.zeros(len(valid))
         y_pred += lgbmodel.predict(valid)
 
-    
+    ed = time.time()
     action = np.where(y_pred> THRESHOLD, 1, 0).astype(int).copy()
+    logger.info('Training process takes {:.2f} min.'.format((ed-sts)/60))
 
     if np.sum(action)>0:
         date_vl = date[vl].copy()

@@ -26,9 +26,8 @@ from janest_model import CustomDataset, train_model, autoencoder2, ResNetModel, 
 from utils import PurgedGroupTimeSeriesSplit, get_args
 
 
-
 def main():
-    
+
     args = get_args()
     with open(args.config_path, 'r') as f:
         config = yaml.safe_load(f)
@@ -71,7 +70,6 @@ def main():
     if TRAINING:
         gkf =  PurgedGroupTimeSeriesSplit(n_splits = FOLDS,  group_gap = GROUP_GAP)
         for fold, (tr, vl) in enumerate(gkf.split(y, y, date)):
-
             pass
 
         logger.info('Train Data Date: {}'.format(np.unique(date[tr])))
@@ -193,9 +191,6 @@ def main():
             logger.info('CV score is {}, Max score is {}, return ratio is {:.1f} '.format(cv_score, max_score, 100*(cv_score/max_score)))
         else:
             raise ZeroDivisionError
-        
-
-    
 
             
 if __name__ == "__main__":
